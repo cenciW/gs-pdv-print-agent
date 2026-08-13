@@ -14,8 +14,14 @@ qualquer seção abaixo — Windows ou Linux, conforme o computador da loja.
 A forma mais simples, sem instalar nada extra: um atalho na pasta
 **Inicializar** do Windows.
 
-1. Copie `gs-pdv-print-agent.exe` para uma pasta fixa, por exemplo
-   `C:\gs-pdv-print-agent\`.
+1. **Extraia o `.zip` inteiro** (botão direito → "Extrair tudo") pra uma pasta
+   fixa, por exemplo `C:\gs-pdv-print-agent\`. O executável **não é um
+   arquivo único** — dentro do zip tem `gs-pdv-print-agent.exe` **e** uma
+   pasta `_internal\` do lado (runtime do Python + DLLs); sem essa pasta o
+   `.exe` não abre nada, nem mostra erro (o cursor pode até "carregar" por um
+   instante enquanto o Explorer tenta, mas nenhuma janela chega a aparecer).
+   **Nunca copie só o `.exe` sozinho** — sempre a pasta inteira extraída,
+   `_internal\` incluída, no mesmo lugar.
 2. Na mesma pasta, crie um arquivo `config.json` com o destino da
    impressora (veja o [README](../README.md) para o formato) — ou deixe o
    agente subir sem configurar e ajuste depois pela tela **Configurar
