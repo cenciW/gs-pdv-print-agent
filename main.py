@@ -18,6 +18,10 @@ que o próprio GS-PDV desktop já é distribuído hoje.
 from __future__ import annotations
 
 import logging
+import os
+import sys
+import threading
+import time
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +66,10 @@ class HealthOut(BaseModel):
 class PrinterConfigIn(BaseModel):
     printer_dest: str
     chars_per_line: int = 48
+
+
+class AgentActionOut(BaseModel):
+    ok: bool
 
 
 def _health_out() -> HealthOut:
@@ -117,6 +125,42 @@ def print_receipt(body: PrintIn):
 
     logger.info("Cupom impresso em %s (%d bytes)", config.printer_dest, len(payload))
     return PrintOut(ok=True)
+
+
+# ── Controle do processo (2026-08-13) ──────────────────────────────────────
+# Chamado pela nova página "Impressão" do dashboard. O agente não se
+# autogerencia hoje (Windows: só atalho na pasta Startup, sem serviço real;
+# Linux: systemd com Restart=on-failure, mas só reage a crash) — "reiniciar"
+# pelo dashboard só funciona de verdade se o próprio processo se re-executa.
+# `os.execv` funciona tanto via `python main.py` quanto empacotado com
+# PyInstaller (`sys.executable` vira o próprio binário quando `sys.frozen`,
+# mesmo padrão já usado em `app/config.py::_default_config_dir`).
+#
+# Sempre responder ANTES de agir — a ação roda numa thread separada com um
+# atraso curto, senão o cliente HTTP nunca recebe a confirmação (o processo
+# já teria saído/re-executado antes do response terminar de ser escrito).
+def _delayed_exit() -> None:
+    time.sleep(0.3)
+    os._exit(0)
+
+
+def _delayed_restart() -> None:
+    time.sleep(0.3)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+@app.post("/agent/stop", response_model=AgentActionOut, dependencies=[Depends(require_auth)])
+def stop_agent():
+    logger.info("Parando o agente a pedido do dashboard.")
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return AgentActionOut(ok=True)
+
+
+@app.post("/agent/restart", response_model=AgentActionOut, dependencies=[Depends(require_auth)])
+def restart_agent():
+    logger.info("Reiniciando o agente a pedido do dashboard.")
+    threading.Thread(target=_delayed_restart, daemon=True).start()
+    return AgentActionOut(ok=True)
 
 
 if __name__ == "__main__":
