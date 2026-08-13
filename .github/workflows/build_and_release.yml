@@ -78,10 +78,9 @@ jobs:
             main.py
 
       - name: Empacotar
-        shell: bash
+        shell: pwsh
         run: |
-          cd dist
-          zip -r ../gs-pdv-print-agent-windows-v${{ needs.version.outputs.version }}.zip gs-pdv-print-agent
+          Compress-Archive -Path dist/gs-pdv-print-agent -DestinationPath gs-pdv-print-agent-windows-v${{ needs.version.outputs.version }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
