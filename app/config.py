@@ -94,12 +94,22 @@ def load_config() -> AgentConfig:
     else:
         allowed_origins = file_data.get("allowed_origins") or ["http://localhost:3001"]
 
+    # `os.getenv(key, default)` só cai no default quando a env var está
+    # AUSENTE — se ela existir e vier vazia (`AGENT_TOKEN=` num atalho/serviço
+    # mal preenchido), `getenv` devolve essa string vazia e ignora o
+    # `config.json` completamente. Bug real achado em 2026-08-14: um token
+    # salvo pelo prompt de primeira execução nunca era lido de volta porque
+    # `AGENT_TOKEN=""` já estava definida no ambiente — e para
+    # `CHARS_PER_LINE`/`AGENT_PORT` o mesmo padrão quebrava com `ValueError`
+    # (`int("")`) em vez de só ignorar o valor. `os.getenv(key) or fallback`
+    # trata "ausente" e "vazio" do mesmo jeito — mesmo padrão que
+    # `allowed_origins` logo acima já usava.
     return AgentConfig(
-        printer_dest=os.getenv("PRINTER_DEST", file_data.get("printer_dest", "")),
-        chars_per_line=int(os.getenv("CHARS_PER_LINE", file_data.get("chars_per_line", 48))),
-        token=os.getenv("AGENT_TOKEN", file_data.get("token", "")),
+        printer_dest=os.getenv("PRINTER_DEST") or file_data.get("printer_dest", ""),
+        chars_per_line=int(os.getenv("CHARS_PER_LINE") or file_data.get("chars_per_line", 48)),
+        token=os.getenv("AGENT_TOKEN") or file_data.get("token", ""),
         allowed_origins=allowed_origins,
-        port=int(os.getenv("AGENT_PORT", file_data.get("port", 9123))),
+        port=int(os.getenv("AGENT_PORT") or file_data.get("port", 9123)),
     )
 
 
@@ -118,4 +128,20 @@ def save_printer_config(config: AgentConfig, printer_dest: str, chars_per_line: 
     data = _read_config_file()
     data["printer_dest"] = printer_dest
     data["chars_per_line"] = chars_per_line
+    _config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def save_token(config: AgentConfig, token: str) -> None:
+    """Grava ``token`` no ``config.json`` — chamado só pelo prompt interativo
+    de primeira execução (``main.py``), nunca por uma rota HTTP.
+
+    Diferente de ``save_printer_config``, que deixa o token de fora de
+    propósito (seria uma rota de rede alterando um segredo): aqui quem digita
+    já está sentado no console do computador da loja — mesma superfície de
+    confiança de editar o `config.json` na mão, só que sem precisar abrir
+    editor de texto nenhum.
+    """
+    config.token = token
+    data = _read_config_file()
+    data["token"] = token
     _config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")

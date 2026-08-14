@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.auth import require_auth
-from app.config import load_config, save_printer_config
+from app.config import load_config, save_printer_config, save_token
 from app.escpos import wrap_escpos
 from app.printer_client import PrinterSendError, send_raw_bytes
 
@@ -163,10 +163,41 @@ def restart_agent():
     return AgentActionOut(ok=True)
 
 
+# ── Primeira execução: pede o token no console (2026-08-14) ────────────────
+# Antes disso a única forma de configurar o token era editar config.json ou
+# variável de ambiente na mão — pedido do usuário: "a primeira tela deveria
+# exigir a chave". Só pergunta quando dá pra perguntar de verdade
+# (`isatty()`): alguém sentado no console, seja `python main.py` ou o `.exe`
+# aberto por clique duplo (janela de console de verdade nos dois casos). Sem
+# esse guard, rodando como serviço/systemd (stdout indo pro journal, sem
+# terminal) o `input()` travaria o boot pra sempre esperando um humano que
+# nunca aparece — mantém o comportamento de hoje (loga aviso, seguir sem
+# travar) pra esse caso.
+def _prompt_for_token_if_missing(config) -> None:
+    if config.token or not sys.stdin.isatty():
+        return
+    print()
+    print("=" * 60)
+    print("Nenhum token configurado ainda.")
+    print("Copie o token na tela Impressão do painel (Config. > Impressão)")
+    print("e cole aqui.")
+    print("=" * 60)
+    try:
+        pasted = input("Token: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        pasted = ""
+    if pasted:
+        save_token(config, pasted)
+        print("Token salvo — não vai ser pedido de novo neste computador.\n")
+    else:
+        print("Nenhum token informado — a impressão vai ser recusada até configurar.\n")
+
+
 if __name__ == "__main__":
     import uvicorn
 
     cfg = app.state.config
+    _prompt_for_token_if_missing(cfg)
     logger.info(
         "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s",
         cfg.port, cfg.printer_dest or "(não configurada)", cfg.chars_per_line,

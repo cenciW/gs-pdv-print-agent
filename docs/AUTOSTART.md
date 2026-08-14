@@ -22,17 +22,23 @@ A forma mais simples, sem instalar nada extra: um atalho na pasta
    instante enquanto o Explorer tenta, mas nenhuma janela chega a aparecer).
    **Nunca copie só o `.exe` sozinho** — sempre a pasta inteira extraída,
    `_internal\` incluída, no mesmo lugar.
-2. Na mesma pasta, crie um arquivo `config.json` com o destino da
-   impressora (veja o [README](../README.md) para o formato) — ou deixe o
-   agente subir sem configurar e ajuste depois pela tela **Configurar
-   impressão** do PDV web.
-3. Defina a variável de ambiente `AGENT_TOKEN` com a `license_key` do
-   tenant (Painel → Config. iFood/Impressão já mostra o token certo) —
-   forma mais simples: crie um atalho pro `.exe` e edite as propriedades do
-   atalho, campo "Destino", pra:
-   ```
-   cmd /c "set AGENT_TOKEN=<token-da-loja> && C:\gs-pdv-print-agent\gs-pdv-print-agent.exe"
-   ```
+2. Configure o token (obrigatório — sem ele o agente recusa toda impressão).
+   Três jeitos, do mais simples ao mais manual:
+   - **Baixe o `config.json` pronto** na tela **Impressão** do painel (botão
+     "Baixar config.json pronto") — já vem com token e impressora
+     preenchidos, só arrastar pra pasta do passo 1.
+   - **Ou abra `gs-pdv-print-agent.exe` uma vez** (duplo clique): se ainda
+     não tiver token configurado, ele pergunta na hora, direto na janela de
+     console que abre — cole o valor (copie da tela **Impressão** do
+     painel) e aperte Enter. Só pergunta uma vez; grava sozinho no
+     `config.json`.
+   - Ou defina manualmente: `AGENT_TOKEN` como variável de ambiente, ou
+     edite `config.json` à mão (veja o [README](../README.md) para o
+     formato).
+3. Crie um atalho pro `gs-pdv-print-agent.exe` (botão direito → Criar atalho)
+   — como o token já está salvo no `config.json` desde o passo 2, o atalho
+   não precisa de nenhum truque de variável de ambiente, só apontar pro
+   executável mesmo.
 4. Pressione `Win + R`, digite `shell:startup` e Enter — abre a pasta
    Inicializar do usuário atual.
 5. Copie o atalho criado no passo 3 pra essa pasta.
@@ -58,8 +64,15 @@ Debian, Mint).
    sudo cp gs-pdv-print-agent /opt/gs-pdv-print-agent/
    sudo chmod +x /opt/gs-pdv-print-agent/gs-pdv-print-agent
    ```
-2. Crie `/opt/gs-pdv-print-agent/config.json` com o destino da impressora
-   (veja o [README](../README.md)) — ou ajuste depois pela tela do PDV web.
+2. Configure o token e a impressora em `/opt/gs-pdv-print-agent/config.json`
+   — o jeito mais simples é baixar o arquivo já pronto na tela
+   **Impressão** do painel (botão "Baixar config.json pronto") e colocar
+   nesse caminho; alternativa manual: rode `./gs-pdv-print-agent` uma vez
+   direto no terminal (fora do systemd) — sem token configurado, ele
+   pergunta e grava sozinho. **Rodando como serviço `systemd` (sem terminal
+   de verdade anexado) o agente nunca pergunta nada** — por isso o token
+   precisa já estar no `config.json` (ou na `Environment=` da unit abaixo)
+   antes de habilitar o serviço.
 3. Crie a unit `/etc/systemd/system/gs-pdv-print-agent.service`:
    ```ini
    [Unit]

@@ -42,7 +42,16 @@ python main.py
 
 Alternativa a variáveis de ambiente: um `config.json` ao lado do executável
 (`{"printer_dest": "...", "token": "...", "allowed_origins": [...], "port": 9123}`)
-— env var sempre vence se as duas existirem.
+— env var sempre vence se as duas existirem (só quando ela **existe de
+verdade**: uma env var presente mas vazia, tipo `AGENT_TOKEN=`, cai pro
+`config.json` do mesmo jeito que se estivesse ausente).
+
+**Mais simples que os dois:** rode o executável direto (duplo clique ou
+`./gs-pdv-print-agent` num terminal) sem nenhum token configurado — se tiver
+um console de verdade ali (não é o caso de rodar como serviço/systemd sem
+terminal), o agente pergunta o token na hora e grava sozinho no
+`config.json`, sem precisar editar arquivo nenhum. Só pergunta uma vez por
+computador.
 
 ## Endpoints
 
