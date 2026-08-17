@@ -2,6 +2,9 @@ venv/
 __pycache__/
 *.pyc
 config.json
+# Log do agente — fica ao lado do config.json, inclusive rodando via
+# `python main.py` na própria pasta do projeto.
+*.log
 .env
 build/
 dist/

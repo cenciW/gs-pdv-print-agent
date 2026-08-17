@@ -192,3 +192,48 @@ def test_print_happy_path_sends_escpos_bytes_to_printer(app_with_config):
     assert res.json() == {"ok": True}
     assert b"CUPOM" in server.received
     assert server.received.startswith(b"\x1B\x40")  # ESC @ no início do payload
+
+
+# ── /printers (2026-08-17) ───────────────────────────────────────────────────
+# A lista alimenta o seletor de impressora do painel. Exige token, ao contrário
+# de /health: nome de impressora é informação da máquina da loja, e o probe de
+# liveness não precisa disso.
+
+def test_printers_requires_token(app_with_config):
+    build, _ = app_with_config
+    app = build()
+    res = TestClient(app).get("/printers")
+    assert res.status_code == 401
+
+
+def test_printers_lists_system_printers(app_with_config, monkeypatch):
+    import main as main_module
+    from app.printers import PrinterInfo
+
+    build, _ = app_with_config
+    app = build()
+    monkeypatch.setattr(main_module, "list_printers", lambda: [
+        PrinterInfo(name="HPRT TP80K", is_default=True),
+        PrinterInfo(name="Cozinha"),
+    ])
+
+    res = TestClient(app).get("/printers", headers={"Authorization": "Bearer segredo-teste"})
+    assert res.status_code == 200
+    assert res.json() == {"printers": [
+        {"name": "HPRT TP80K", "is_default": True},
+        {"name": "Cozinha", "is_default": False},
+    ]}
+
+
+def test_printers_empty_is_a_valid_answer(app_with_config, monkeypatch):
+    """Máquina sem spooler/CUPS: 200 com lista vazia, nunca erro. O painel cai
+    no campo de texto livre — que é também o caminho da impressora de rede."""
+    import main as main_module
+
+    build, _ = app_with_config
+    app = build()
+    monkeypatch.setattr(main_module, "list_printers", list)
+
+    res = TestClient(app).get("/printers", headers={"Authorization": "Bearer segredo-teste"})
+    assert res.status_code == 200
+    assert res.json() == {"printers": []}

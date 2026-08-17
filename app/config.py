@@ -43,6 +43,16 @@ def _config_path() -> Path:
     return _default_config_dir() / "config.json"
 
 
+def log_path() -> Path:
+    """Arquivo de log, **ao lado do ``config.json``**.
+
+    Mesmo diretório de propósito: pedir para o lojista "mandar o log" só
+    funciona se ele estiver onde a pessoa já sabe procurar — a pasta onde ela
+    colocou o executável e o arquivo de configuração.
+    """
+    return _config_path().parent / "gs-pdv-print-agent.log"
+
+
 @dataclass
 class AgentConfig:
     """Configuração do agente.

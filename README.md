@@ -63,6 +63,51 @@ computador.
   pronto do `gs-menu-server` (`GET /api/restaurant/sales/{id}/receipt`) —
   o agente só embrulha em ESC/POS e envia, nunca formata nada (garante que a
   prévia em tela e o cupom impresso saiam idênticos).
+- `GET /printers` — impressoras instaladas neste computador (spooler do
+  Windows / CUPS), para o painel oferecer a escolha em vez de exigir o nome
+  digitado à mão. **Exige token**, diferente de `/health`: nome de impressora
+  é informação da máquina da loja. Lista vazia significa "não consegui
+  descobrir" (sem spooler, CUPS fora do ar), nunca "não há impressora" — o
+  painel cai no campo de texto livre, que é também o caminho da impressora de
+  rede, que não aparece em spooler nenhum.
+
+## Interface (bandeja + janela)
+
+Desde 2026-08-17 o agente abre com **ícone na bandeja do sistema** (área de
+notificação; no Windows costuma ficar atrás da setinha "mostrar ícones
+ocultos"). O menu do botão direito responde as duas perguntas que antes só o
+painel respondia — "está rodando?" e "como mexo nisso?":
+
+- status (impressora e largura configuradas, ou o que está faltando);
+- **Configurar impressora…** — janela com a lista de impressoras do sistema,
+  largura do papel e o campo de token;
+- **Testar impressão**;
+- **Iniciar com o computador** — cria/remove o atalho de inicialização sozinho;
+- Reiniciar / Sair.
+
+A janela e o painel web gravam pelo **mesmo** `save_printer_config`/`save_token`:
+são duas portas para a mesma configuração, nunca duas fontes de verdade.
+
+**A interface é opcional.** `pystray`/`Pillow` ausentes, máquina sem ambiente
+gráfico, ou falha do backend de bandeja: o agente loga e **segue imprimindo**.
+Quem manda é o serviço, não o ícone.
+
+### Modo serviço (`--headless`)
+
+```bash
+python main.py --headless      # ou GS_AGENT_GUI=0
+```
+
+Sem bandeja e sem janela — é o que systemd/serviço usa. O prompt de token
+continua acontecendo no console quando há um terminal de verdade.
+
+### Log
+
+O agente escreve em `gs-pdv-print-agent.log`, **ao lado do `config.json`**
+(rotação a cada 1 MB, 3 arquivos). Não é conforto: o build do Windows é
+*windowed*, sem console — sem o arquivo, diagnosticar problema em máquina de
+cliente vira adivinhação. Pedir "manda o log" só funciona se ele estiver onde
+a pessoa já sabe procurar.
 
 ## Segurança
 

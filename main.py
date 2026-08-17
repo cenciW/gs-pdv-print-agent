@@ -30,9 +30,11 @@ from pydantic import BaseModel
 from app.auth import require_auth
 from app.config import load_config, save_printer_config, save_token
 from app.escpos import wrap_escpos
+from app.logging_setup import setup_logging
 from app.printer_client import PrinterSendError, send_raw_bytes
+from app.printers import list_printers
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+_arquivo_de_log = setup_logging()
 logger = logging.getLogger("gs-pdv-print-agent")
 
 app = FastAPI(title="GS-PDV Print Agent")
@@ -72,6 +74,10 @@ class AgentActionOut(BaseModel):
     ok: bool
 
 
+class PrintersOut(BaseModel):
+    printers: list[dict]
+
+
 def _health_out() -> HealthOut:
     config = app.state.config
     return HealthOut(
@@ -109,6 +115,21 @@ def set_printer(body: PrinterConfigIn):
         app.state.config.printer_dest, app.state.config.chars_per_line,
     )
     return _health_out()
+
+
+@app.get("/printers", response_model=PrintersOut, dependencies=[Depends(require_auth)])
+def list_system_printers():
+    """Impressoras instaladas neste computador, para o painel oferecer a escolha.
+
+    **Com autenticação**, diferente de ``/health``: nome de impressora é
+    informação da máquina da loja, e o probe de liveness não precisa disso.
+
+    Lista vazia significa "não consegui descobrir" (máquina sem spooler/CUPS,
+    consulta falhou) — nunca "não há impressora". O painel cai no campo de texto
+    livre, que também é o caminho da impressora de rede, que não aparece em
+    spooler nenhum.
+    """
+    return PrintersOut(printers=[p.to_dict() for p in list_printers()])
 
 
 @app.post("/print", response_model=PrintOut, dependencies=[Depends(require_auth)])
@@ -176,7 +197,7 @@ def restart_agent():
 def _prompt_for_token_if_missing(config) -> None:
     if config.token or not sys.stdin.isatty():
         return
-    print()
+    print()  # noqa: T201 — é o prompt de console, não log
     print("=" * 60)
     print("Nenhum token configurado ainda.")
     print("Copie o token na tela Impressão do painel (Config. > Impressão)")
@@ -193,15 +214,125 @@ def _prompt_for_token_if_missing(config) -> None:
         print("Nenhum token informado — a impressão vai ser recusada até configurar.\n")
 
 
-if __name__ == "__main__":
-    import uvicorn
+# ── Arranque ───────────────────────────────────────────────────────────────
+# Dois modos, e a diferença importa:
+#
+# **Bandeja** (padrão) — o jeito que o lojista usa: duplo-clique no executável,
+# ícone aparece na área de notificação, configuração por janela. O laço da
+# bandeja precisa da **thread principal** na maioria dos sistemas, então quem
+# vai para uma thread separada é o uvicorn.
+#
+# **Headless** (`--headless`, ou `GS_AGENT_GUI=0`) — o jeito que o systemd/
+# serviço usa: sem janela, sem bandeja, exatamente o comportamento de antes
+# desta versão. Também é o caminho automático quando a bandeja não pode subir
+# (servidor sem ambiente gráfico, backend ausente no Linux): o agente **sempre**
+# imprime, com ou sem ícone. Quem manda é o serviço, não a interface.
 
+
+def _servir(cfg) -> None:
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_config=None)
+
+
+def _resolver_token(cfg, com_interface: bool) -> None:
+    """Garante um token antes de subir, pelo caminho possível nesta execução.
+
+    Console → prompt de texto (como sempre foi). Sem console mas com janela →
+    diálogo do tkinter. Sem os dois → segue e loga: um serviço não pode travar
+    esperando um humano que não está lá.
+    """
+    if cfg.token:
+        return
+    if sys.stdin is not None and sys.stdin.isatty():
+        _prompt_for_token_if_missing(cfg)
+        return
+    if com_interface:
+        from app import gui
+        if gui.disponivel():
+            gui.pedir_token(cfg)
+    if not cfg.token:
+        logger.warning("Nenhum token configurado — /print vai recusar tudo até configurar.")
+
+
+def _testar_impressao(cfg) -> None:
+    """Cupom de teste disparado pela bandeja/janela.
+
+    Mesmo texto do teste do painel web, na largura configurada — é a largura
+    errada que produz o sintoma clássico de papel em branco sobrando, então o
+    teste precisa reproduzi-la.
+    """
+    largura = cfg.chars_per_line
+    linhas = [
+        "TESTE DE IMPRESSAO".center(largura),
+        "-" * largura,
+        "Se este cupom saiu certo, sem",
+        "linhas em branco extras, a largura",
+        "esta correta.",
+        "-" * largura,
+        f"Largura configurada: {largura} colunas",
+        "", "",
+    ]
+    send_raw_bytes(wrap_escpos("\n".join(linhas)), cfg.printer_dest)
+
+
+def _com_interface() -> bool:
+    if "--headless" in sys.argv:
+        return False
+    return os.getenv("GS_AGENT_GUI", "1") != "0"
+
+
+def main() -> None:
     cfg = app.state.config
-    _prompt_for_token_if_missing(cfg)
+    com_interface = _com_interface()
+
+    _resolver_token(cfg, com_interface)
     logger.info(
-        "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s",
+        "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s modo=%s log=%s",
         cfg.port, cfg.printer_dest or "(não configurada)", cfg.chars_per_line,
         "configurado" if cfg.token else "AUSENTE (print vai recusar tudo)",
-        cfg.allowed_origins,
+        cfg.allowed_origins, "bandeja" if com_interface else "headless",
+        _arquivo_de_log or "(só console)",
     )
-    uvicorn.run(app, host="0.0.0.0", port=cfg.port)
+
+    if not com_interface:
+        _servir(cfg)
+        return
+
+    from app import gui, tray
+
+    if not tray.disponivel():
+        logger.warning("pystray/Pillow indisponíveis — subindo sem ícone na bandeja.")
+        _servir(cfg)
+        return
+
+    # `icone` aparece dentro do próprio construtor de propósito: closure em
+    # Python resolve o nome na CHAMADA, não na definição, e a lambda só roda
+    # quando alguém clica no menu — momento em que `icone` já existe. É o que
+    # permite a janela avisar a bandeja para se atualizar depois de salvar.
+    icone = tray.TrayIcon(
+        config=cfg,
+        ao_abrir_configuracao=lambda: gui.abrir_configuracao(
+            cfg, ao_salvar=icone.atualizar, testar_impressao=lambda: _testar_impressao(cfg),
+        ),
+        ao_testar_impressao=lambda: _testar_impressao(cfg),
+        ao_reiniciar=lambda: threading.Thread(target=_delayed_restart, daemon=True).start(),
+        ao_sair=lambda: threading.Thread(target=_delayed_exit, daemon=True).start(),
+        url_painel=tray.resolver_url_painel(cfg) or "http://localhost:3001/impressao",
+    )
+
+    servidor = tray.iniciar_em_thread(lambda: _servir(cfg), nome="uvicorn")
+
+    # A bandeja NUNCA pode derrubar a impressão da loja. Não é hipótese: no
+    # primeiro teste real (2026-08-17) o backend X11 do pystray levantou
+    # UnicodeEncodeError por causa de um travessão no título e matou o processo
+    # inteiro — com o servidor HTTP já no ar e funcionando. Se o ícone falhar,
+    # o agente segue servindo sem ele; o operador perde o menu, não a venda.
+    try:
+        icone.run()  # segura a thread principal até "Sair"
+    except Exception:  # noqa: BLE001 — qualquer falha da bandeja vira degradação, não queda
+        logger.exception("Falha na bandeja do sistema — seguindo apenas como serviço.")
+        servidor.join()
+
+
+if __name__ == "__main__":
+    main()

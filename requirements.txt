@@ -4,3 +4,9 @@ pydantic==2.13.4
 pytest==8.3.3
 httpx==0.28.1
 pywin32==308; sys_platform == "win32"
+# Ícone na bandeja do sistema (2026-08-17). A janela de configuração usa
+# tkinter, que é biblioteca padrão — nada a declarar aqui. Os dois são
+# importados de forma preguiçosa: máquina sem ambiente gráfico (servidor,
+# systemd) roda o agente normalmente, só sem ícone.
+pystray==0.19.5
+Pillow==11.0.0

@@ -6,6 +6,15 @@ Windows, etc.), alguém precisa lembrar de abrir o programa de novo antes de
 imprimir o primeiro cupom do dia. Este guia mostra como deixar o
 computador subir o agente sozinho.
 
+> **A partir da versão de 2026-08-17, o caminho mais curto é dentro do próprio
+> agente.** Abra o programa, clique com o botão direito no ícone da bandeja
+> (perto do relógio, às vezes escondido na setinha "mostrar ícones ocultos") e
+> marque **"Iniciar com o computador"**. Pronto — ele cria o atalho sozinho, e
+> desmarcar remove. As seções abaixo continuam valendo para quem prefere fazer
+> à mão, ou para quem precisa de um **serviço de verdade** no Linux (systemd
+> roda mesmo sem ninguém logado; o atalho da bandeja depende da sessão do
+> usuário).
+
 Baixe o executável em [Releases](../../releases/latest) antes de seguir
 qualquer seção abaixo — Windows ou Linux, conforme o computador da loja.
 
@@ -28,10 +37,11 @@ A forma mais simples, sem instalar nada extra: um atalho na pasta
      "Baixar config.json pronto") — já vem com token e impressora
      preenchidos, só arrastar pra pasta do passo 1.
    - **Ou abra `gs-pdv-print-agent.exe` uma vez** (duplo clique): se ainda
-     não tiver token configurado, ele pergunta na hora, direto na janela de
-     console que abre — cole o valor (copie da tela **Impressão** do
-     painel) e aperte Enter. Só pergunta uma vez; grava sozinho no
-     `config.json`.
+     não tiver token configurado, ele **abre uma janelinha pedindo o token** —
+     cole o valor (copie da tela **Impressão** do painel) e aperte Enter. Só
+     pergunta uma vez; grava sozinho no `config.json`. (Rodando pelo terminal,
+     com `--headless` ou via `python main.py`, ele pergunta no console em vez
+     de abrir janela.)
    - Ou defina manualmente: `AGENT_TOKEN` como variável de ambiente, ou
      edite `config.json` à mão (veja o [README](../README.md) para o
      formato).

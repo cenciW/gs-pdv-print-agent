@@ -63,9 +63,18 @@ jobs:
         shell: pwsh
         run: |
           $certPath = python -c "import certifi; print(certifi.where())"
+          # ATENÇÃO: o CI NÃO usa o gs-pdv-print-agent.spec — as opções abaixo
+          # precisam ficar em sincronia com ele à mão. Mesma armadilha já
+          # documentada no CLAUDE.md do monorepo para o GS-PDV desktop.
+          #
+          # `--windowed` (2026-08-17): o agente virou aplicação de bandeja, e
+          # um console preto atrás do ícone é fechado por engano, derrubando a
+          # impressão da loja. Só é seguro porque o log passou a ir para
+          # arquivo (app/logging_setup.py). Modo serviço continua disponível
+          # via `--headless`.
           pyinstaller --noconfirm `
             --name gs-pdv-print-agent `
-            --console `
+            --windowed `
             --hidden-import uvicorn.loops.auto `
             --hidden-import uvicorn.protocols.http.auto `
             --hidden-import uvicorn.protocols.websockets.auto `
@@ -74,6 +83,12 @@ jobs:
             --hidden-import win32print `
             --hidden-import win32api `
             --hidden-import pywintypes `
+            --hidden-import pystray `
+            --hidden-import PIL.Image `
+            --hidden-import PIL.ImageDraw `
+            --hidden-import tkinter `
+            --hidden-import tkinter.ttk `
+            --hidden-import tkinter.messagebox `
             --add-data "${certPath};certifi" `
             main.py
 
