@@ -138,9 +138,9 @@ class TrayAccessory:
             pystray.MenuItem(lambda _i: self._actions.status().resumo(), None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "Abrir configuracao", self._item(self._mostrar_janela), default=True,
+                "Abrir configuração", self._item(self._mostrar_janela), default=True,
             ),
-            pystray.MenuItem("Testar impressao", self._item(self._testar)),
+            pystray.MenuItem("Testar impressão", self._item(self._testar)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "Iniciar com o computador",

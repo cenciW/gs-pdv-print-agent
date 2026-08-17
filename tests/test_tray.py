@@ -27,7 +27,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agent_actions import AgentActions
 from app.config import AgentConfig
+from app.ui import tray as tray_module
 from app.ui.tray import TrayAccessory, _desenhar_icone, _titulo_seguro, suporta_menu
+
+#: Importar ``pystray`` escolhe um backend na hora, e num runner sem ``$DISPLAY``
+#: o backend X11 levanta ``DisplayNameError`` já no import. O produto trata isso
+#: (``tray.disponivel()`` devolve ``False`` e o agente segue como serviço); só os
+#: testes que precisam do módulo de verdade é que ficam de fora.
+precisa_de_pystray = pytest.mark.skipif(
+    not tray_module.disponivel(), reason="pystray indisponível (máquina sem display)",
+)
 
 
 @pytest.fixture()
@@ -100,6 +109,7 @@ def test_agendar_pode_ser_chamado_de_outra_thread(actions):
 # ── Honestidade sobre o que o sistema suporta ───────────────────────────────
 
 
+@precisa_de_pystray
 def test_suporta_menu_reflete_a_capacidade_real_do_backend(monkeypatch):
     """No X11 o pystray aceita o menu e o descarta — não podemos acreditar nele.
 
@@ -142,6 +152,7 @@ def test_titulo_seguro_preserva_acento_portugues():
     assert _titulo_seguro("Impressão não configurada") == "Impressão não configurada"
 
 
+@precisa_de_pystray
 def test_desenhar_icone_muda_de_cor_conforme_o_estado():
     pronto = _desenhar_icone(True)
     parado = _desenhar_icone(False)
@@ -149,19 +160,21 @@ def test_desenhar_icone_muda_de_cor_conforme_o_estado():
     assert list(pronto.getdata()) != list(parado.getdata())
 
 
+@precisa_de_pystray
 def test_montar_menu_expoe_as_acoes_esperadas(actions):
     fila: list = []
     bandeja = _bandeja(actions, fila)
     rotulos = [str(item.text) for item in bandeja._montar_menu().items]  # noqa: SLF001
 
-    assert "Abrir configuracao" in rotulos
-    assert "Testar impressao" in rotulos
+    assert "Abrir configuração" in rotulos
+    assert "Testar impressão" in rotulos
     assert "Sair" in rotulos
     # "Abrir painel no navegador" saiu na v0.3.0: o usuário pediu tudo desktop,
     # e o painel web dele nem abria por causa do congelamento.
     assert not any("painel" in r.lower() for r in rotulos)
 
 
+@precisa_de_pystray
 def test_primeira_linha_do_menu_mostra_o_estado(actions):
     fila: list = []
     bandeja = _bandeja(actions, fila)
