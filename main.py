@@ -21,24 +21,29 @@ import logging
 import os
 import sys
 import threading
-import time
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.agent_actions import AgentActions, ConfiguracaoInvalida
 from app.auth import require_auth
-from app.config import load_config, save_printer_config, save_token
+from app.config import load_config, save_token
 from app.escpos import wrap_escpos
 from app.logging_setup import setup_logging
 from app.printer_client import PrinterSendError, send_raw_bytes
-from app.printers import list_printers
 
 _arquivo_de_log = setup_logging()
 logger = logging.getLogger("gs-pdv-print-agent")
 
 app = FastAPI(title="GS-PDV Print Agent")
 app.state.config = load_config()
+
+# Uma única implementação de cada ação, compartilhada pelas rotas HTTP, pela
+# janela e pela bandeja (`app/agent_actions.py`). Antes disso a mesma operação
+# estava escrita em três lugares, e "duas portas para a mesma configuração"
+# virava "duas verdades": salvar pelo painel não chegava na janela aberta.
+app.state.actions = AgentActions(app.state.config, servidor_no_ar=lambda: True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,13 +112,14 @@ def set_printer(body: PrinterConfigIn):
     editáveis por aqui — ver ``save_printer_config`` pro porquê de
     token/origens ficarem de fora.
     """
-    if body.chars_per_line < 20 or body.chars_per_line > 64:
-        raise HTTPException(status_code=400, detail="chars_per_line deve estar entre 20 e 64")
-    save_printer_config(app.state.config, body.printer_dest.strip(), body.chars_per_line)
-    logger.info(
-        "Impressora reconfigurada: %s (%d colunas)",
-        app.state.config.printer_dest, app.state.config.chars_per_line,
-    )
+    try:
+        # Passa pelo mesmo núcleo que a janela usa — inclusive o aviso aos
+        # observadores, que é o que faz a janela aberta refletir na hora uma
+        # mudança feita pelo painel, em vez de continuar mostrando o valor
+        # antigo até alguém reabrir.
+        app.state.actions.salvar_impressora(body.printer_dest, body.chars_per_line)
+    except ConfiguracaoInvalida as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _health_out()
 
 
@@ -129,7 +135,7 @@ def list_system_printers():
     livre, que também é o caminho da impressora de rede, que não aparece em
     spooler nenhum.
     """
-    return PrintersOut(printers=[p.to_dict() for p in list_printers()])
+    return PrintersOut(printers=[p.to_dict() for p in app.state.actions.listar_impressoras()])
 
 
 @app.post("/print", response_model=PrintOut, dependencies=[Depends(require_auth)])
@@ -159,28 +165,20 @@ def print_receipt(body: PrintIn):
 #
 # Sempre responder ANTES de agir — a ação roda numa thread separada com um
 # atraso curto, senão o cliente HTTP nunca recebe a confirmação (o processo
-# já teria saído/re-executado antes do response terminar de ser escrito).
-def _delayed_exit() -> None:
-    time.sleep(0.3)
-    os._exit(0)
-
-
-def _delayed_restart() -> None:
-    time.sleep(0.3)
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+# já teria saído/re-executado antes do response terminar de ser escrito). Esse
+# atraso vive em `AgentActions`, junto do resto: o menu da bandeja precisa
+# exatamente do mesmo comportamento.
 
 
 @app.post("/agent/stop", response_model=AgentActionOut, dependencies=[Depends(require_auth)])
 def stop_agent():
-    logger.info("Parando o agente a pedido do dashboard.")
-    threading.Thread(target=_delayed_exit, daemon=True).start()
+    app.state.actions.encerrar()
     return AgentActionOut(ok=True)
 
 
 @app.post("/agent/restart", response_model=AgentActionOut, dependencies=[Depends(require_auth)])
 def restart_agent():
-    logger.info("Reiniciando o agente a pedido do dashboard.")
-    threading.Thread(target=_delayed_restart, daemon=True).start()
+    app.state.actions.reiniciar()
     return AgentActionOut(ok=True)
 
 
@@ -214,65 +212,36 @@ def _prompt_for_token_if_missing(config) -> None:
         print("Nenhum token informado — a impressão vai ser recusada até configurar.\n")
 
 
+
 # ── Arranque ───────────────────────────────────────────────────────────────
-# Dois modos, e a diferença importa:
+# **A janela é dona da thread principal.** Foi o contrário até a v0.2.0, e foi
+# a origem dos dois defeitos que reprovaram aquela release:
 #
-# **Bandeja** (padrão) — o jeito que o lojista usa: duplo-clique no executável,
-# ícone aparece na área de notificação, configuração por janela. O laço da
-# bandeja precisa da **thread principal** na maioria dos sistemas, então quem
-# vai para uma thread separada é o uvicorn.
+# * Windows — o pystray despacha o callback do menu de dentro da bomba de
+#   mensagens; abrir a janela ali congelava a bandeja (relato do usuário: "a
+#   busca achou algumas, mas ficou toda travada a aplicação").
+# * Linux/X11 — o pystray nem suporta menu (`_xorg.py: HAS_MENU = False`), então
+#   o menu inteiro era descartado em silêncio e o ícone não fazia nada.
 #
-# **Headless** (`--headless`, ou `GS_AGENT_GUI=0`) — o jeito que o systemd/
-# serviço usa: sem janela, sem bandeja, exatamente o comportamento de antes
-# desta versão. Também é o caminho automático quando a bandeja não pode subir
-# (servidor sem ambiente gráfico, backend ausente no Linux): o agente **sempre**
-# imprime, com ou sem ícone. Quem manda é o serviço, não a interface.
+# Agora o Tk fica com o laço principal, o uvicorn e a bandeja rodam em threads,
+# e todo item de menu só ENFILEIRA trabalho para o laço da janela.
+#
+# Três modos:
+#
+# **Janela** (padrão) — duplo-clique no executável: janela de configuração e,
+# quando o sistema suporta, ícone na área de notificação.
+#
+# **Headless** (`--headless` ou `GS_AGENT_GUI=0`) — o que systemd/serviço usa:
+# só o uvicorn, sem janela e sem bandeja.
+#
+# **Queda automática para headless** — sem Tk ou sem display, o agente sobe
+# como serviço e loga. O agente SEMPRE imprime, com ou sem interface: quem
+# manda é o serviço.
 
 
 def _servir(cfg) -> None:
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_config=None)
-
-
-def _resolver_token(cfg, com_interface: bool) -> None:
-    """Garante um token antes de subir, pelo caminho possível nesta execução.
-
-    Console → prompt de texto (como sempre foi). Sem console mas com janela →
-    diálogo do tkinter. Sem os dois → segue e loga: um serviço não pode travar
-    esperando um humano que não está lá.
-    """
-    if cfg.token:
-        return
-    if sys.stdin is not None and sys.stdin.isatty():
-        _prompt_for_token_if_missing(cfg)
-        return
-    if com_interface:
-        from app import gui
-        if gui.disponivel():
-            gui.pedir_token(cfg)
-    if not cfg.token:
-        logger.warning("Nenhum token configurado — /print vai recusar tudo até configurar.")
-
-
-def _testar_impressao(cfg) -> None:
-    """Cupom de teste disparado pela bandeja/janela.
-
-    Mesmo texto do teste do painel web, na largura configurada — é a largura
-    errada que produz o sintoma clássico de papel em branco sobrando, então o
-    teste precisa reproduzi-la.
-    """
-    largura = cfg.chars_per_line
-    linhas = [
-        "TESTE DE IMPRESSAO".center(largura),
-        "-" * largura,
-        "Se este cupom saiu certo, sem",
-        "linhas em branco extras, a largura",
-        "esta correta.",
-        "-" * largura,
-        f"Largura configurada: {largura} colunas",
-        "", "",
-    ]
-    send_raw_bytes(wrap_escpos("\n".join(linhas)), cfg.printer_dest)
 
 
 def _com_interface() -> bool:
@@ -281,16 +250,87 @@ def _com_interface() -> bool:
     return os.getenv("GS_AGENT_GUI", "1") != "0"
 
 
+def _resolver_token_no_console(cfg) -> None:
+    """Pede o token no console quando há console de verdade.
+
+    Com janela, o token é só mais um campo dela — não há motivo para um prompt
+    separado. Este caminho existe para `python main.py` num terminal e para o
+    modo headless com alguém sentado no console.
+    """
+    if cfg.token or sys.stdin is None or not sys.stdin.isatty():
+        return
+    _prompt_for_token_if_missing(cfg)
+
+
+def _avisar_falha_fatal(mensagem: str) -> None:
+    """Último recurso quando não há console nem janela para mostrar o erro.
+
+    Num `.exe` `--windowed`, uma falha no arranque da interface deixaria o
+    operador vendo **nada** — foi exatamente o ".exe não abre nada" que ficou
+    sem causa raiz na SESSAO §21. Uma caixa do próprio Windows (ctypes, sem
+    dependência nova) pelo menos diz onde está o log.
+    """
+    logger.error("%s", mensagem)
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, mensagem, "GS PDV - Agente de Impressao", 0x10)
+    except Exception:  # noqa: BLE001 — é o último recurso; não pode levantar
+        pass
+
+
+def _iniciar_com_interface(cfg) -> None:
+    """Sobe servidor + janela (+ bandeja, se der) e entrega o laço à janela."""
+    from app.ui import tray, window
+
+    servidor = threading.Thread(target=lambda: _servir(cfg), name="uvicorn", daemon=True)
+    servidor.start()
+    app.state.actions = AgentActions(cfg, servidor_no_ar=servidor.is_alive)
+
+    janela = window.AgentWindow(app.state.actions)
+    bandeja = None
+
+    if tray.disponivel():
+        bandeja = tray.TrayAccessory(
+            app.state.actions, agendar=janela.agendar, ao_mostrar_janela=janela.mostrar,
+        )
+        if not bandeja.iniciar():
+            bandeja = None
+        else:
+            app.state.actions.observar(lambda: janela.agendar(bandeja.atualizar))
+
+    # Esconder para a bandeja só é oferecido onde existe menu para trazer a
+    # janela de volta. No Linux/X11 o pystray não suporta menu, e esconder
+    # deixaria a configuração inalcançável — lá, fechar a janela pergunta se é
+    # para encerrar o agente.
+    com_bandeja = bandeja is not None and tray.suporta_menu()
+    if com_bandeja:
+        janela.permitir_esconder_na_bandeja(bandeja.atualizar)
+
+    # Já configurado + bandeja com menu = sobe silencioso, só o ícone (decisão
+    # do usuário em 2026-08-17). Faltando token ou impressora, a janela abre:
+    # é a primeira instalação, e é onde ela precisa aparecer.
+    pronto = app.state.actions.status().pronto
+    janela.executar(iniciar_escondida=pronto and com_bandeja)
+
+    if bandeja is not None:
+        bandeja.parar()
+
+
 def main() -> None:
     cfg = app.state.config
     com_interface = _com_interface()
 
-    _resolver_token(cfg, com_interface)
+    if not com_interface:
+        _resolver_token_no_console(cfg)
+
     logger.info(
         "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s modo=%s log=%s",
         cfg.port, cfg.printer_dest or "(não configurada)", cfg.chars_per_line,
         "configurado" if cfg.token else "AUSENTE (print vai recusar tudo)",
-        cfg.allowed_origins, "bandeja" if com_interface else "headless",
+        cfg.allowed_origins, "janela" if com_interface else "headless",
         _arquivo_de_log or "(só console)",
     )
 
@@ -298,40 +338,24 @@ def main() -> None:
         _servir(cfg)
         return
 
-    from app import gui, tray
+    from app.ui import window
 
-    if not tray.disponivel():
-        logger.warning("pystray/Pillow indisponíveis — subindo sem ícone na bandeja.")
+    if not window.disponivel():
+        logger.warning("Sem interface gráfica — subindo apenas como serviço.")
+        _resolver_token_no_console(cfg)
         _servir(cfg)
         return
 
-    # `icone` aparece dentro do próprio construtor de propósito: closure em
-    # Python resolve o nome na CHAMADA, não na definição, e a lambda só roda
-    # quando alguém clica no menu — momento em que `icone` já existe. É o que
-    # permite a janela avisar a bandeja para se atualizar depois de salvar.
-    icone = tray.TrayIcon(
-        config=cfg,
-        ao_abrir_configuracao=lambda: gui.abrir_configuracao(
-            cfg, ao_salvar=icone.atualizar, testar_impressao=lambda: _testar_impressao(cfg),
-        ),
-        ao_testar_impressao=lambda: _testar_impressao(cfg),
-        ao_reiniciar=lambda: threading.Thread(target=_delayed_restart, daemon=True).start(),
-        ao_sair=lambda: threading.Thread(target=_delayed_exit, daemon=True).start(),
-        url_painel=tray.resolver_url_painel(cfg) or "http://localhost:3001/impressao",
-    )
-
-    servidor = tray.iniciar_em_thread(lambda: _servir(cfg), nome="uvicorn")
-
-    # A bandeja NUNCA pode derrubar a impressão da loja. Não é hipótese: no
-    # primeiro teste real (2026-08-17) o backend X11 do pystray levantou
-    # UnicodeEncodeError por causa de um travessão no título e matou o processo
-    # inteiro — com o servidor HTTP já no ar e funcionando. Se o ícone falhar,
-    # o agente segue servindo sem ele; o operador perde o menu, não a venda.
     try:
-        icone.run()  # segura a thread principal até "Sair"
-    except Exception:  # noqa: BLE001 — qualquer falha da bandeja vira degradação, não queda
-        logger.exception("Falha na bandeja do sistema — seguindo apenas como serviço.")
-        servidor.join()
+        _iniciar_com_interface(cfg)
+    except Exception:  # noqa: BLE001 — interface quebrada não pode parar a impressão
+        logger.exception("Falha ao subir a interface — seguindo apenas como serviço.")
+        _avisar_falha_fatal(
+            "Nao foi possivel abrir a janela do agente.\n\n"
+            "O agente continua imprimindo em segundo plano.\n"
+            f"Detalhes no log: {_arquivo_de_log or '(sem arquivo de log)'}",
+        )
+        _servir(cfg)
 
 
 if __name__ == "__main__":

@@ -71,26 +71,55 @@ computador.
   painel cai no campo de texto livre, que é também o caminho da impressora de
   rede, que não aparece em spooler nenhum.
 
-## Interface (bandeja + janela)
+## Interface (janela + bandeja)
 
-Desde 2026-08-17 o agente abre com **ícone na bandeja do sistema** (área de
-notificação; no Windows costuma ficar atrás da setinha "mostrar ícones
-ocultos"). O menu do botão direito responde as duas perguntas que antes só o
-painel respondia — "está rodando?" e "como mexo nisso?":
+Desde a **v0.3.0** o agente é um **aplicativo desktop**: duplo-clique no
+executável e a janela de configuração abre. Toda a configuração está nela —
+não é preciso abrir o painel web para instalar o agente.
 
-- status (impressora e largura configuradas, ou o que está faltando);
-- **Configurar impressora…** — janela com a lista de impressoras do sistema,
-  largura do papel e o campo de token;
-- **Testar impressão**;
-- **Iniciar com o computador** — cria/remove o atalho de inicialização sozinho;
-- Reiniciar / Sair.
+A janela tem três blocos:
 
-A janela e o painel web gravam pelo **mesmo** `save_printer_config`/`save_token`:
-são duas portas para a mesma configuração, nunca duas fontes de verdade.
+- **Impressora** — escolha entre *instalada neste computador* (lista do
+  spooler/CUPS, com busca que filtra enquanto se digita) e *impressora de rede
+  (IP)*; largura do papel (80 mm / 58 mm) e **Testar impressão**, que imprime
+  na largura da tela mesmo antes de salvar (calibrar é imprimir, olhar o papel
+  e ajustar).
+- **Conexão com o painel** — token do agente.
+- **Sistema** — iniciar com o computador, abrir a pasta de configuração, ver o
+  log, reiniciar.
 
-**A interface é opcional.** `pystray`/`Pillow` ausentes, máquina sem ambiente
-gráfico, ou falha do backend de bandeja: o agente loga e **segue imprimindo**.
-Quem manda é o serviço, não o ícone.
+A barra de status embaixo responde "dá para imprimir agora?" — e avisa em
+vermelho quando **não** dá (sem token, o agente recusa tudo).
+
+### A bandeja é acessório, não a interface
+
+O ícone na área de notificação (no Windows, atrás da setinha "mostrar ícones
+ocultos") mostra o estado e dá atalho para abrir a configuração, testar,
+alternar o início automático, reiniciar e sair.
+
+**Ela nunca é dona da thread principal** — a janela é. Isso não é detalhe de
+estilo: era a arquitetura invertida que quebrou a v0.2.0 em duas frentes.
+
+| Sistema | O que acontecia na v0.2.0 |
+|---|---|
+| **Windows** | O `pystray` despacha o callback do menu de dentro da bomba de mensagens (`_win32.py:224`). Abrir a janela ali **congelava a bandeja** enquanto a janela vivesse. |
+| **Linux/X11** | Pior e silencioso: `pystray/_xorg.py` declara `HAS_MENU = False` e `_update_menu` é `pass` ("Menus are not supported on X"). O menu inteiro era **descartado sem aviso** — o ícone aparecia e não fazia nada. |
+
+Agora todo item de menu apenas **enfileira** a ação para o laço da janela
+(`AgentWindow.agendar`) e retorna em microssegundos. O código também
+**pergunta** se o sistema desenha menu (`tray.suporta_menu()`) em vez de
+assumir: onde não desenha, a janela não se esconde na bandeja — esconder
+deixaria a configuração inalcançável.
+
+### Uma configuração, várias portas
+
+Janela, bandeja e rotas HTTP chamam o **mesmo** `app/agent_actions.py`. Salvar
+pelo painel web avisa a janela aberta (padrão Observador), então as duas portas
+nunca divergem sobre qual impressora está configurada.
+
+**A interface é opcional.** Sem `pystray`/`Pillow`, sem Tk, sem ambiente
+gráfico ou com falha no arranque da interface: o agente loga e **segue
+imprimindo** como serviço. Quem manda é o serviço, não a tela.
 
 ### Modo serviço (`--headless`)
 
@@ -98,7 +127,7 @@ Quem manda é o serviço, não o ícone.
 python main.py --headless      # ou GS_AGENT_GUI=0
 ```
 
-Sem bandeja e sem janela — é o que systemd/serviço usa. O prompt de token
+Sem janela e sem bandeja — é o que systemd/serviço usa. O prompt de token
 continua acontecendo no console quando há um terminal de verdade.
 
 ### Log
@@ -137,11 +166,19 @@ de rede, que é o padrão já instalado no parque de clientes.
 
 ## Empacotamento (PyInstaller)
 
-Distribuído como executável único, mesmo padrão do GS-PDV desktop
-(`build_executables.sh`/`GS-PDV.spec`), com uma diferença: `console=True`
-(é um serviço headless, não um app com janela — o técnico precisa ver os
-logs ao rodar manualmente) e sem ícone (não há taskbar/dock pra um
-processo sem janela).
+Distribuído como executável, mesmo padrão do GS-PDV desktop
+(`build_executables.sh`/`GS-PDV.spec`). Duas opções merecem atenção:
+
+- **`console=False` (`--windowed`)** — um console preto atrás da janela é
+  fechado por engano, derrubando a impressão da loja. Só é seguro porque o log
+  vai para arquivo (ver acima).
+- **`--collect-all tkinter`** — `--hidden-import tkinter` traz o *módulo*, mas
+  a janela precisa dos *dados* do Tcl/Tk. Com o import preguiçoso, o hook pode
+  não disparar: o build passa, o `.exe` sobe e a janela falha **só na máquina
+  do cliente**.
+
+> ⚠️ O CI **não usa** o `.spec` — `build_and_release.yml` repete as opções em
+> linha de comando. Mudou uma, mude nos dois lugares.
 
 ```bash
 source venv/bin/activate

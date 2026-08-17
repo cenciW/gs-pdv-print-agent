@@ -9,3 +9,9 @@ config.json
 build/
 dist/
 .pytest_cache/
+
+# Artefatos das verificações em ambiente gráfico. As capturas ficam FORA do
+# versionamento porque este repositório é público e a janela mostra caminhos
+# da máquina de quem rodou (pasta do usuário, diretório temporário). Rodar
+# `scripts/verificacao/janela-agente.py` regenera todas.
+scripts/verificacao/capturas/

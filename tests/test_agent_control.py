@@ -3,16 +3,22 @@ nova página "Impressão" do dashboard (2026-08-13). A ação real (os._exit/
 os.execv) roda numa thread separada após um sleep curto; os testes mockam
 essas três chamadas (time.sleep, os._exit, os.execv) pra verificar que a
 rota aciona a função certa sem matar o processo de teste.
+
+Desde a v0.3.0 essas duas ações vivem em ``app/agent_actions.py``, e não mais
+soltas no ``main``: o menu da bandeja precisa exatamente do mesmo
+comportamento (responder/atualizar a tela antes de o processo morrer), e ter
+duas cópias seria ter duas regras. Por isso os mocks apontam para lá.
 """
 
 from __future__ import annotations
 
 import importlib
-import threading
 import time
 
 import pytest
 from fastapi.testclient import TestClient
+
+from app import agent_actions
 
 
 @pytest.fixture()
@@ -55,8 +61,8 @@ def test_restart_without_token_is_rejected(app_module):
 
 def test_stop_responds_ok_before_exiting(app_module, monkeypatch):
     calls = []
-    monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
-    monkeypatch.setattr(app_module.os, "_exit", lambda code: calls.append(("_exit", code)))
+    monkeypatch.setattr(agent_actions.time, "sleep", lambda s: None)
+    monkeypatch.setattr(agent_actions.os, "_exit", lambda code: calls.append(("_exit", code)))
 
     client = TestClient(app_module.app)
     res = client.post("/agent/stop", headers=AUTH)
@@ -68,8 +74,8 @@ def test_stop_responds_ok_before_exiting(app_module, monkeypatch):
 
 def test_restart_responds_ok_before_reexecuting(app_module, monkeypatch):
     calls = []
-    monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
-    monkeypatch.setattr(app_module.os, "execv", lambda path, args: calls.append((path, args)))
+    monkeypatch.setattr(agent_actions.time, "sleep", lambda s: None)
+    monkeypatch.setattr(agent_actions.os, "execv", lambda path, args: calls.append((path, args)))
 
     client = TestClient(app_module.app)
     res = client.post("/agent/restart", headers=AUTH)
@@ -78,5 +84,5 @@ def test_restart_responds_ok_before_reexecuting(app_module, monkeypatch):
     assert res.json() == {"ok": True}
     assert _wait_for(lambda: len(calls) == 1)
     path, args = calls[0]
-    assert path == app_module.sys.executable
-    assert args == [app_module.sys.executable] + app_module.sys.argv
+    assert path == agent_actions.sys.executable
+    assert args == [agent_actions.sys.executable] + agent_actions.sys.argv

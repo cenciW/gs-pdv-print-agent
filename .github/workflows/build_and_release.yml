@@ -67,11 +67,16 @@ jobs:
           # precisam ficar em sincronia com ele à mão. Mesma armadilha já
           # documentada no CLAUDE.md do monorepo para o GS-PDV desktop.
           #
-          # `--windowed` (2026-08-17): o agente virou aplicação de bandeja, e
-          # um console preto atrás do ícone é fechado por engano, derrubando a
+          # `--windowed` (2026-08-17): o agente virou aplicação desktop, e um
+          # console preto atrás da janela é fechado por engano, derrubando a
           # impressão da loja. Só é seguro porque o log passou a ir para
           # arquivo (app/logging_setup.py). Modo serviço continua disponível
           # via `--headless`.
+          #
+          # `--collect-all tkinter` (v0.3.0): a janela virou a interface
+          # PRINCIPAL, e `--hidden-import` sozinho traz o módulo mas não
+          # garante os dados do Tcl/Tk. Sem eles o .exe sobe e a janela falha
+          # só na máquina do cliente. Mesma opção precisa existir no .spec.
           pyinstaller --noconfirm `
             --name gs-pdv-print-agent `
             --windowed `
@@ -89,6 +94,7 @@ jobs:
             --hidden-import tkinter `
             --hidden-import tkinter.ttk `
             --hidden-import tkinter.messagebox `
+            --collect-all tkinter `
             --add-data "${certPath};certifi" `
             main.py
 

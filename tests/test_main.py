@@ -207,12 +207,12 @@ def test_printers_requires_token(app_with_config):
 
 
 def test_printers_lists_system_printers(app_with_config, monkeypatch):
-    import main as main_module
+    from app import agent_actions
     from app.printers import PrinterInfo
 
     build, _ = app_with_config
     app = build()
-    monkeypatch.setattr(main_module, "list_printers", lambda: [
+    monkeypatch.setattr(agent_actions, "list_printers", lambda: [
         PrinterInfo(name="HPRT TP80K", is_default=True),
         PrinterInfo(name="Cozinha"),
     ])
@@ -228,11 +228,11 @@ def test_printers_lists_system_printers(app_with_config, monkeypatch):
 def test_printers_empty_is_a_valid_answer(app_with_config, monkeypatch):
     """Máquina sem spooler/CUPS: 200 com lista vazia, nunca erro. O painel cai
     no campo de texto livre — que é também o caminho da impressora de rede."""
-    import main as main_module
+    from app import agent_actions
 
     build, _ = app_with_config
     app = build()
-    monkeypatch.setattr(main_module, "list_printers", list)
+    monkeypatch.setattr(agent_actions, "list_printers", list)
 
     res = TestClient(app).get("/printers", headers={"Authorization": "Bearer segredo-teste"})
     assert res.status_code == 200

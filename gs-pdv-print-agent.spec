@@ -6,9 +6,20 @@
 # DOIS lugares (mesma armadilha já documentada no CLAUDE.md do monorepo
 # pro GS-PDV desktop).
 import certifi
+from PyInstaller.utils.hooks import collect_all
 
-datas = [(certifi.where(), "certifi")]
+# `--hidden-import tkinter` declara o MÓDULO; o que faz a janela abrir são os
+# DADOS do Tcl/Tk (tcl86t.dll, tk86t.dll, pastas tcl/ e tk/). Com o import
+# preguiçoso — dentro das funções, para máquina sem ambiente gráfico seguir
+# imprimindo — a análise estática pode não disparar o hook que copia esses
+# arquivos: o build passa, o .exe sobe, e a janela falha só na máquina do
+# cliente. Agora que a janela é a interface PRINCIPAL, isso deixou de ser
+# cosmético. `collect_all` garante módulo + binários + dados.
+tk_datas, tk_binaries, tk_hidden = collect_all("tkinter")
+
+datas = [(certifi.where(), "certifi"), *tk_datas]
 hiddenimports = [
+    *tk_hidden,
     "uvicorn.loops.auto",
     "uvicorn.protocols.http.auto",
     "uvicorn.protocols.websockets.auto",
@@ -29,7 +40,7 @@ hiddenimports = [
 a = Analysis(
     ["main.py"],
     pathex=[],
-    binaries=[],
+    binaries=tk_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

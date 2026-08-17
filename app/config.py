@@ -43,6 +43,16 @@ def _config_path() -> Path:
     return _default_config_dir() / "config.json"
 
 
+def config_path() -> Path:
+    """Onde o ``config.json`` é lido e gravado.
+
+    Público porque a janela do agente mostra este caminho na tela: quando algo
+    dá errado numa máquina de loja, "onde fica o arquivo?" é a primeira
+    pergunta, e a resposta depende de estar empacotado ou não.
+    """
+    return _config_path()
+
+
 def log_path() -> Path:
     """Arquivo de log, **ao lado do ``config.json``**.
 
