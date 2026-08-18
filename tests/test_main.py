@@ -237,3 +237,62 @@ def test_printers_empty_is_a_valid_answer(app_with_config, monkeypatch):
     res = TestClient(app).get("/printers", headers={"Authorization": "Bearer segredo-teste"})
     assert res.status_code == 200
     assert res.json() == {"printers": []}
+
+
+# ── Private Network Access (2026-08-18) ────────────────────────────────────
+# O painel roda numa máquina da LAN e chama o agente no loopback. Para o Chrome
+# isso é ir para uma rede MAIS privada, e ele manda um preflight especial. Com o
+# default do Starlette a resposta é 400 e o painel nunca enxerga o agente — nem
+# com a origem autorizada. Foi verificado com curl contra o agente empacotado
+# antes de existir este teste.
+
+
+def test_preflight_de_rede_privada_e_aceito(app_with_config):
+    build, _ = app_with_config
+    res = TestClient(build()).options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:3001",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.headers.get("access-control-allow-private-network") == "true"
+
+
+def test_preflight_de_rede_privada_de_origem_nao_autorizada_continua_barrado(app_with_config):
+    """Liberar rede privada não pode virar liberar geral."""
+    build, _ = app_with_config
+    res = TestClient(build()).options(
+        "/health",
+        headers={
+            "Origin": "http://intruso:3001",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+
+    assert res.headers.get("access-control-allow-origin") != "http://intruso:3001"
+
+
+def test_preflight_bloqueado_e_registrado_para_a_janela_oferecer(app_with_config):
+    """O registrador precisa ficar POR FORA do CORS.
+
+    O CORSMiddleware responde ao preflight e encerra sem chamar o que está
+    abaixo: por dentro, a tentativa que mais importa — a do navegador que está
+    sendo bloqueado — nunca seria vista.
+    """
+    build, _ = app_with_config
+    app = build()
+    TestClient(app).options(
+        "/health",
+        headers={
+            "Origin": "http://192.168.1.135:3001",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+
+    assert "http://192.168.1.135:3001" in app.state.actions.origens_recusadas()

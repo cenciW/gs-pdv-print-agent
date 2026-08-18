@@ -45,23 +45,6 @@ app.state.config = load_config()
 # virava "duas verdades": salvar pelo painel não chegava na janela aberta.
 app.state.actions = AgentActions(app.state.config, servidor_no_ar=lambda: True)
 
-# Registra quem tentou usar o agente sem estar autorizado, para a janela poder
-# oferecer "autorizar" em vez de exigir que alguém saiba o IP do servidor.
-#
-# Fica DENTRO do CORS (adicionado antes, portanto mais interno) de propósito: o
-# CORSMiddleware precisa ser o mais externo para que erro não tratado saia com
-# cabeçalho de CORS — regra já registrada no CLAUDE.md. Isso basta porque a
-# sonda que o painel faz primeiro é `GET /health`, sem cabeçalho custom e
-# portanto **sem preflight**: a requisição chega aqui normalmente, e é só a
-# resposta que o navegador descarta por falta do cabeçalho.
-@app.middleware("http")
-async def _registrar_origem(request, call_next):
-    origem = request.headers.get("origin")
-    if origem:
-        app.state.actions.registrar_origem_recusada(origem)
-    return await call_next(request)
-
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app.state.config.allowed_origins,
@@ -69,7 +52,41 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
+    # Private Network Access (2026-08-18). O painel roda numa máquina da LAN
+    # (`http://192.168.1.135:3001`) e chama o agente no loopback
+    # (`http://127.0.0.1:9123`) — do ponto de vista do Chrome isso é ir de uma
+    # rede menos privada para uma MAIS privada, e ele manda um preflight com
+    # `Access-Control-Request-Private-Network: true`. Com o default do
+    # Starlette (`allow_private_network=False`) a resposta é **400 Disallowed
+    # CORS private-network**, e o painel nunca enxerga o agente — nem com a
+    # origem autorizada. Verificado com curl contra o agente empacotado.
+    #
+    # Liberar aqui não afrouxa nada: continua valendo a lista de origens (o
+    # preflight já falha antes se a origem não estiver nela) e o token em tudo
+    # que não seja `/health`. É só dizer ao navegador "sim, eu sou um serviço
+    # local e sei que estou sendo chamado de fora do loopback".
+    allow_private_network=True,
 )
+
+
+# Registra quem tentou usar o agente sem estar autorizado, para a janela poder
+# oferecer "autorizar" em vez de exigir que alguém saiba o IP do servidor.
+#
+# Adicionado DEPOIS do CORS, portanto **por fora** dele. Precisa ser assim: o
+# CORSMiddleware responde ao preflight e encerra ali, sem chamar o que está
+# abaixo — um registrador interno nunca veria a tentativa que mais importa,
+# justamente a do navegador que está sendo bloqueado. Verificado: por dentro,
+# o preflight não era registrado.
+#
+# Não conflita com a regra "CORS por fora" do CLAUDE.md, que existe para o CORS
+# envolver quem GERA resposta de erro. Este middleware só lê um cabeçalho e
+# repassa; o CORS continua envolvendo a aplicação inteira.
+@app.middleware("http")
+async def _registrar_origem(request, call_next):
+    origem = request.headers.get("origin")
+    if origem:
+        app.state.actions.registrar_origem_recusada(origem)
+    return await call_next(request)
 
 
 class PrintIn(BaseModel):
