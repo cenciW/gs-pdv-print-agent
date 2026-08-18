@@ -36,6 +36,20 @@ def _keysym(caractere: str) -> str:
     return _NOMES_DE_TECLA.get(caractere, caractere)
 
 
+def _achar(raiz, classe):
+    """Procura widgets de uma classe em toda a árvore, não só nos filhos diretos.
+
+    A tela agrupa campo + botão em molduras; buscar só em `winfo_children()`
+    quebra sempre que um grupo novo aparece — e quebra o ROTEIRO, não o produto.
+    """
+    achados = []
+    for filho in raiz.winfo_children():
+        if isinstance(filho, classe):
+            achados.append(filho)
+        achados.extend(_achar(filho, classe))
+    return achados
+
+
 def conferir(condicao: bool, descricao: str) -> None:
     resultados.append((bool(condicao), descricao))
     print(f"{'  OK  ' if condicao else ' FALHA'} | {descricao}", flush=True)
@@ -77,11 +91,8 @@ def main() -> int:
     conferir("padrao do sistema" in janela._lista.get(0), "impressora padrão vem marcada e no topo")
 
     # ── Busca: digitação tecla a tecla, como o operador faz ──
-    entrada_busca = [w for w in janela._painel_instalada.winfo_children()[0].winfo_children()
-                     if isinstance(w, tk.ttk.Entry if hasattr(tk, "ttk") else object)]
     from tkinter import ttk
-    entrada_busca = [w for w in janela._painel_instalada.winfo_children()[0].winfo_children()
-                     if isinstance(w, ttk.Entry)][0]
+    entrada_busca = _achar(janela._painel_instalada, ttk.Entry)[0]
     entrada_busca.focus_set()
     # Só `event_generate`: num Entry com foco o próprio Tk insere o caractere.
     # Somar um `insert` manual dobrava cada letra ("ccoozziinnhhaa") — foi o que
@@ -114,7 +125,7 @@ def main() -> int:
     raiz.update()
     conferir(bool(janela._painel_rede.winfo_manager()), "modo 'Impressora de rede' revela o campo de IP")
 
-    entrada_ip = [w for w in janela._painel_rede.winfo_children() if isinstance(w, ttk.Entry)][0]
+    entrada_ip = _achar(janela._painel_rede, ttk.Entry)[0]
     entrada_ip.focus_set()
     for caractere in "192.168.1.50:9100":
         entrada_ip.event_generate("<KeyPress>", keysym=_keysym(caractere))
@@ -153,6 +164,41 @@ def main() -> int:
     janela._drenar()
     conferir(marca == [1], "o laço da janela é quem executa a ação")
 
+    # ── Origens autorizadas: o caso real da loja (painel noutro computador) ──
+    janela._modo.set("instalada")
+    janela._sincronizar_modo()
+    conferir("http://localhost:3001" in janela._origens.get("1.0", "end"),
+             "a tela mostra as origens autorizadas de hoje")
+
+    # O painel do servidor da loja bate na porta e é recusado.
+    actions.registrar_origem_recusada("http://192.168.1.135:3001")
+    janela._drenar()
+    janela._pintar_detectada()
+    raiz.update()
+    conferir(bool(janela._linha_detectada.winfo_manager()),
+             "a janela avisa que um painel tentou imprimir e não estava autorizado")
+    conferir("192.168.1.135" in janela._lbl_detectada.cget("text"),
+             "o aviso mostra QUAL painel tentou (o lojista não precisa saber o IP)")
+
+    janela._autorizar_detectada()
+    raiz.update()
+    conferir("http://192.168.1.135:3001" in actions.config.allowed_origins,
+             "um clique em Autorizar libera o painel que tentou")
+    conferir("http://localhost:3001" in actions.config.allowed_origins,
+             "autorizar o novo NÃO apaga o que já estava autorizado")
+    conferir(actions.origens_recusadas() == [],
+             "depois de autorizado, o aviso some (não fica oferecendo de novo)")
+    conferir(not janela._linha_detectada.winfo_manager(),
+             "a linha do aviso desaparece da tela")
+
+    # ── Testar conexão aparece só para impressora de rede ──
+    janela._modo.set(_MODO_REDE)
+    janela._sincronizar_modo()
+    raiz.update()
+    botoes_rede = [w.cget("text") for w in _achar(janela._painel_rede, ttk.Button)]
+    conferir("Testar conexão" in botoes_rede,
+             "botão 'Testar conexão' aparece no modo impressora de rede")
+
     # ── Captura para alguém OLHAR ──
     janela._modo.set("instalada")
     janela._sincronizar_modo()
@@ -163,6 +209,24 @@ def main() -> int:
     raiz.lift()
     raiz.update()
     time.sleep(0.6)
+
+    # Regressão real: o bloco de origens empurrou o Salvar para fora da janela,
+    # e nenhuma asserção reclamou porque nenhuma perguntava se o botão estava
+    # VISÍVEL. Só a captura mostrou. Agora é verificado.
+    raiz.update_idletasks()
+    fundo_do_botao = janela._btn_salvar.winfo_rooty() + janela._btn_salvar.winfo_height()
+    fundo_da_janela = raiz.winfo_rooty() + raiz.winfo_height()
+    conferir(fundo_do_botao <= fundo_da_janela,
+             f"o botão Salvar cabe dentro da janela (botão termina em {fundo_do_botao}, "
+             f"janela em {fundo_da_janela})")
+    conferir(janela._lbl_status.winfo_viewable(), "a barra de status está visível")
+    # O `pack` do Tk recorta em silêncio: sem erro, sem log, o widget só some.
+    # Conferir widget a widget é o que transforma isso em falha de teste.
+    for nome, w in (("caminho do config/log", janela._lbl_caminhos),
+                    ("lista de impressoras", janela._lista),
+                    ("origens autorizadas", janela._origens),
+                    ("campo de token", janela._entrada_token)):
+        conferir(w.winfo_viewable(), f"{nome} está visível na janela")
 
     destino = pasta / "janela-agente.png"
     subprocess.run(["import", "-window", str(raiz.winfo_id()), str(destino)], check=False)

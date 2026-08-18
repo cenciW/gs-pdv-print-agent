@@ -151,6 +151,28 @@ def save_printer_config(config: AgentConfig, printer_dest: str, chars_per_line: 
     _config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def save_origins(config: AgentConfig, origins: list[str]) -> None:
+    """Grava as origens autorizadas no ``config.json``.
+
+    **A lista é alterada no lugar** (``[:] =``), nunca substituída por outra.
+    O ``CORSMiddleware`` do Starlette guarda a *referência* da lista recebida no
+    arranque (``cors.py:66``) e consulta ``origin in self.allow_origins`` a cada
+    requisição (``cors.py:105``): mutando no lugar, autorizar um painel passa a
+    valer na hora. Rebindar criaria uma lista nova que o middleware nunca veria,
+    e o botão "Autorizar" pareceria funcionar sem funcionar até o próximo
+    restart — exatamente o tipo de mentira que este projeto já pagou caro.
+
+    Chamado só pela janela do agente, nunca por rota HTTP: quem digita está
+    sentado no computador da loja (mesma superfície de confiança de
+    ``save_token``), enquanto uma rota de rede decidindo **quem pode falar com o
+    agente** seria a própria fechadura se abrindo por fora.
+    """
+    config.allowed_origins[:] = origins
+    data = _read_config_file()
+    data["allowed_origins"] = list(origins)
+    _config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 def save_token(config: AgentConfig, token: str) -> None:
     """Grava ``token`` no ``config.json`` — chamado só pelo prompt interativo
     de primeira execução (``main.py``), nunca por uma rota HTTP.

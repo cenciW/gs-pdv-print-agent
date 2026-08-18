@@ -29,10 +29,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from app import autostart
-from app.config import AgentConfig, config_path, log_path, save_printer_config, save_token
+from app import autostart, rede
+from app.config import (
+    AgentConfig, config_path, log_path, save_origins, save_printer_config, save_token,
+)
 from app.escpos import wrap_escpos
-from app.printer_client import send_raw_bytes
+from app.printer_client import send_raw_bytes, test_connection
 from app.printers import PrinterInfo, list_printers
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,10 @@ LARGURA_MIN, LARGURA_MAX = 20, 64
 #: escrita antes de o processo morrer. Sem isso, quem pediu "reiniciar" pelo
 #: painel nunca recebe a confirmação.
 _ATRASO_ENCERRAMENTO_S = 0.3
+
+#: Quantas origens recusadas guardar para oferecer na tela. Poucas de propósito:
+#: é uma lista para uma pessoa ler e decidir, não um registro de auditoria.
+_MAXIMO_ORIGENS_DETECTADAS = 5
 
 
 class ConfiguracaoInvalida(ValueError):
@@ -109,6 +115,11 @@ class AgentActions:
         self._config = config
         self._servidor_no_ar = servidor_no_ar
         self._observadores: list[Callable[[], None]] = []
+        # Origens que tentaram usar este agente e foram recusadas. É o que
+        # permite a janela perguntar "um painel em http://192.168.1.135:3001
+        # tentou imprimir aqui — autorizar?" em vez de exigir que o lojista
+        # saiba o IP do servidor de cor. Quem autoriza continua sendo a pessoa.
+        self._origens_recusadas: list[str] = []
 
     @property
     def config(self) -> AgentConfig:
@@ -186,6 +197,62 @@ class AgentActions:
         logger.info("Token %s pela janela do agente.", "salvo" if self._config.token else "removido")
         self.notificar()
 
+    # ── Origens autorizadas ──────────────────────────────────────────────────
+
+    def salvar_origens(self, origens: list[str]) -> None:
+        """Grava a lista de origens, normalizada.
+
+        Raises:
+            ConfiguracaoInvalida: Alguma entrada não parece um endereço de
+                painel. Recusar cedo é melhor que gravar ``192.168.1.135:3001``
+                sem esquema e o operador ficar sem entender por que continua
+                bloqueado — o navegador manda a origem **com** ``http://``.
+        """
+        limpas: list[str] = []
+        for bruta in origens:
+            origem = bruta.strip().rstrip("/")
+            if not origem:
+                continue
+            if not origem.startswith(("http://", "https://")):
+                raise ConfiguracaoInvalida(
+                    f"'{origem}' precisa começar com http:// ou https:// — é assim "
+                    "que o navegador identifica o painel.",
+                )
+            if origem not in limpas:
+                limpas.append(origem)
+
+        save_origins(self._config, limpas)
+        logger.info("Origens autorizadas: %s", limpas)
+        # Sai da lista de "tentaram e foram recusadas" o que acabou de ser
+        # autorizado, senão a janela seguiria oferecendo autorizar de novo.
+        self._origens_recusadas = [o for o in self._origens_recusadas if o not in limpas]
+        self.notificar()
+
+    def registrar_origem_recusada(self, origem: str) -> None:
+        """Anota um painel que tentou usar este agente sem estar autorizado."""
+        if not origem or origem in self._config.allowed_origins:
+            return
+        if origem in self._origens_recusadas:
+            return
+        self._origens_recusadas.append(origem)
+        del self._origens_recusadas[:-_MAXIMO_ORIGENS_DETECTADAS]
+        logger.info("Painel não autorizado tentou usar o agente: %s", origem)
+        self.notificar()
+
+    def origens_recusadas(self) -> list[str]:
+        return list(self._origens_recusadas)
+
+    def origem_sugerida(self) -> str:
+        """Melhor palpite de endereço do painel **nesta** máquina.
+
+        Serve para o caso em que o painel roda no mesmo computador do agente.
+        Quando o painel está noutra máquina — o caso da loja com um servidor —
+        quem resolve é ``origens_recusadas``, que sabe o endereço real porque
+        ele bateu na porta.
+        """
+        ip = rede.ip_local()
+        return f"http://{ip}:3001" if ip else ""
+
     # ── Impressão de teste ───────────────────────────────────────────────────
 
     def testar_impressao(self, chars_per_line: Optional[int] = None) -> None:
@@ -207,6 +274,23 @@ class AgentActions:
         largura = chars_per_line or self._config.chars_per_line
         send_raw_bytes(wrap_escpos(montar_cupom_de_teste(largura)), destino)
         logger.info("Cupom de teste enviado para %s (%d colunas).", destino, largura)
+
+    def testar_conexao(self, destino: Optional[str] = None) -> float:
+        """Confere se este computador **alcança** a impressora de rede.
+
+        Devolve o tempo de resposta em milissegundos. Não imprime nada — ver
+        ``printer_client.test_connection`` para o porquê.
+
+        Raises:
+            ConfiguracaoInvalida: Nenhum endereço informado.
+            PrinterSendError: Não alcançou, com a mensagem já pronta.
+        """
+        alvo = (destino or self._config.printer_dest).strip()
+        if not alvo:
+            raise ConfiguracaoInvalida("Informe o endereço da impressora antes de testar.")
+        latencia = test_connection(alvo)
+        logger.info("Conexão com %s respondeu em %.0f ms.", alvo, latencia)
+        return latencia
 
     # ── Sistema ──────────────────────────────────────────────────────────────
 

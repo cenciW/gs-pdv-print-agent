@@ -45,6 +45,23 @@ app.state.config = load_config()
 # virava "duas verdades": salvar pelo painel não chegava na janela aberta.
 app.state.actions = AgentActions(app.state.config, servidor_no_ar=lambda: True)
 
+# Registra quem tentou usar o agente sem estar autorizado, para a janela poder
+# oferecer "autorizar" em vez de exigir que alguém saiba o IP do servidor.
+#
+# Fica DENTRO do CORS (adicionado antes, portanto mais interno) de propósito: o
+# CORSMiddleware precisa ser o mais externo para que erro não tratado saia com
+# cabeçalho de CORS — regra já registrada no CLAUDE.md. Isso basta porque a
+# sonda que o painel faz primeiro é `GET /health`, sem cabeçalho custom e
+# portanto **sem preflight**: a requisição chega aqui normalmente, e é só a
+# resposta que o navegador descarta por falta do cabeçalho.
+@app.middleware("http")
+async def _registrar_origem(request, call_next):
+    origem = request.headers.get("origin")
+    if origem:
+        app.state.actions.registrar_origem_recusada(origem)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app.state.config.allowed_origins,

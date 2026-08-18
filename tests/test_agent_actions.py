@@ -230,3 +230,111 @@ def test_alternar_autostart_que_falha_nao_marca_a_caixa(actions, monkeypatch):
     monkeypatch.setattr("app.autostart.ativar", lambda: False)
 
     assert actions.alternar_autostart() is False
+
+
+# ── Origens autorizadas (2026-08-17, achado no 1º teste real no Windows) ────
+# O agente só aceitava `http://localhost:3001`. Abrindo o painel pelo IP do
+# servidor da loja, o navegador manda outra origem, o agente recusa e a tela
+# diz "agente não encontrado" — sem lugar nenhum para corrigir.
+
+
+def test_salvar_origens_persiste_e_normaliza(actions, arquivo):
+    actions.salvar_origens(["  http://192.168.1.135:3001/  ", "", "http://localhost:3001"])
+
+    assert actions.config.allowed_origins == [
+        "http://192.168.1.135:3001", "http://localhost:3001",
+    ]
+    assert json.loads(arquivo.read_text())["allowed_origins"][0] == "http://192.168.1.135:3001"
+
+
+def test_salvar_origens_descarta_duplicata(actions):
+    actions.salvar_origens(["http://a:3001", "http://a:3001/", "http://b:3001"])
+    assert actions.config.allowed_origins == ["http://a:3001", "http://b:3001"]
+
+
+@pytest.mark.parametrize("ruim", ["192.168.1.135:3001", "localhost:3001", "ftp://x"])
+def test_salvar_origens_recusa_endereco_sem_esquema(actions, ruim):
+    """O navegador manda a origem COM http://; gravar sem seria bloqueio mudo."""
+    with pytest.raises(ConfiguracaoInvalida, match="http"):
+        actions.salvar_origens([ruim])
+
+
+def test_lista_de_origens_e_alterada_no_lugar(actions):
+    """O CORSMiddleware guarda a REFERÊNCIA da lista (starlette cors.py:66) e a
+    consulta a cada requisição. Rebindar faria o botão "Autorizar" parecer
+    funcionar sem funcionar até o próximo restart."""
+    original = actions.config.allowed_origins
+    actions.salvar_origens(["http://novo:3001"])
+
+    assert actions.config.allowed_origins is original
+    assert original == ["http://novo:3001"]
+
+
+def test_origem_recusada_fica_registrada_para_a_tela_oferecer(actions):
+    actions.registrar_origem_recusada("http://192.168.1.135:3001")
+    assert actions.origens_recusadas() == ["http://192.168.1.135:3001"]
+
+
+def test_origem_ja_autorizada_nao_vira_pedido(actions):
+    actions.salvar_origens(["http://ok:3001"])
+    actions.registrar_origem_recusada("http://ok:3001")
+    assert actions.origens_recusadas() == []
+
+
+def test_autorizar_tira_da_lista_de_pedidos(actions):
+    """Senão a tela seguiria oferecendo autorizar algo que já está autorizado."""
+    actions.registrar_origem_recusada("http://192.168.1.135:3001")
+    actions.salvar_origens(["http://192.168.1.135:3001"])
+    assert actions.origens_recusadas() == []
+
+
+def test_pedidos_de_acesso_nao_crescem_sem_limite(actions):
+    for n in range(20):
+        actions.registrar_origem_recusada(f"http://host{n}:3001")
+    assert len(actions.origens_recusadas()) == 5
+
+
+# ── Testar conexão com impressora de rede (pedido do usuário) ───────────────
+
+
+def test_testar_conexao_mede_impressora_que_responde(actions):
+    """Servidor TCP real, como o resto dos testes de impressora já faz."""
+    import socket as sock
+    import threading
+
+    servidor = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
+    servidor.bind(("127.0.0.1", 0))
+    servidor.listen(1)
+    porta = servidor.getsockname()[1]
+    threading.Thread(target=lambda: servidor.accept(), daemon=True).start()
+    try:
+        latencia = actions.testar_conexao(f"127.0.0.1:{porta}")
+        assert latencia >= 0
+    finally:
+        servidor.close()
+
+
+def test_testar_conexao_explica_porta_fechada(actions):
+    """Mensagem precisa dizer o que fazer, não só "falhou"."""
+    with pytest.raises(PrinterSendError, match="porta"):
+        actions.testar_conexao("127.0.0.1:9")
+
+
+def test_testar_conexao_recusa_impressora_do_spooler(actions):
+    """Impressora instalada não tem IP — mandar o operador para o teste certo."""
+    with pytest.raises(PrinterSendError, match="Testar impressão"):
+        actions.testar_conexao("HPRT-TP80K")
+
+
+def test_testar_conexao_sem_endereco(actions):
+    with pytest.raises(ConfiguracaoInvalida):
+        actions.testar_conexao("   ")
+
+
+def test_testar_conexao_nao_imprime_nada(actions, monkeypatch):
+    """Testar a rede não pode gastar papel — o operador testa quantas vezes precisar."""
+    enviados = []
+    monkeypatch.setattr("app.agent_actions.send_raw_bytes", lambda *a: enviados.append(a))
+    with pytest.raises(PrinterSendError):
+        actions.testar_conexao("127.0.0.1:9")
+    assert enviados == []

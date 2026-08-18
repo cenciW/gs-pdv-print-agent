@@ -189,27 +189,65 @@ class AgentWindow:
         raiz = self._raiz
         raiz.title("GS PDV — Agente de Impressão")
         raiz.protocol("WM_DELETE_WINDOW", self._ao_pedir_fechamento)
-        raiz.minsize(520, 640)
+        # A altura mínima é calculada do conteúdo no fim de `_montar`, não
+        # chutada aqui: um número fixo vira recorte silencioso toda vez que a
+        # tela ganha um campo. Já aconteceu duas vezes na mesma sessão.
+        raiz.minsize(560, 400)
 
         corpo = ttk.Frame(raiz, padding=12)
         corpo.pack(fill="both", expand=True)
+
+        # Botões e barra de status são empacotados PRIMEIRO, ancorados embaixo.
+        # No `pack` do Tk quem chega antes reserva espaço antes: com eles por
+        # último, um bloco que cresce empurra o "Salvar" para fora da janela.
+        # Foi o que aconteceu ao acrescentar as origens autorizadas — só
+        # apareceu olhando a captura da verificação, porque nenhuma asserção
+        # perguntava se o botão estava VISÍVEL.
+        acoes = ttk.Frame(corpo)
+        acoes.pack(side="bottom", fill="x", pady=(8, 0))
+        self._btn_salvar = ttk.Button(acoes, text="Salvar", command=self._salvar)
+        self._btn_salvar.pack(side="left")
+        ttk.Button(acoes, text="Testar impressão", command=self._testar).pack(side="left", padx=6)
+        ttk.Button(acoes, text="Fechar", command=self._ao_pedir_fechamento).pack(side="right")
+
+        # Barra de status: responde "está funcionando?" sem abrir mais nada.
+        self._lbl_status = ttk.Label(corpo, text="", anchor="w")
+        self._lbl_status.pack(side="bottom", fill="x", pady=(10, 0))
 
         self._montar_bloco_impressora(tk, ttk, corpo)
         self._montar_bloco_conexao(tk, ttk, corpo)
         self._montar_bloco_sistema(tk, ttk, corpo)
 
-        # Barra de status: responde "está funcionando?" sem abrir mais nada.
-        self._lbl_status = ttk.Label(corpo, text="", anchor="w")
-        self._lbl_status.pack(fill="x", pady=(10, 0))
-
-        acoes = ttk.Frame(corpo)
-        acoes.pack(fill="x", pady=(8, 0))
-        ttk.Button(acoes, text="Salvar", command=self._salvar).pack(side="left")
-        ttk.Button(acoes, text="Testar impressão", command=self._testar).pack(side="left", padx=6)
-        ttk.Button(acoes, text="Fechar", command=self._ao_pedir_fechamento).pack(side="right")
-
         self._recarregar_impressoras(preservar_escolha=False)
         self._recarregar_da_config()
+        self._ajustar_altura_ao_conteudo()
+
+    def _ajustar_altura_ao_conteudo(self) -> None:
+        """Faz a janela caber tudo o que ela tem dentro.
+
+        O `pack` do Tk **recorta em silêncio** o que não cabe: nada de erro, nada
+        no log — o widget simplesmente não aparece. Nesta sessão isso escondeu
+        primeiro o botão "Salvar" e depois o caminho do arquivo de log. Perguntar
+        ao próprio Tk qual é a altura necessária (`winfo_reqheight`) elimina a
+        classe inteira de defeito, em vez de corrigir um caso por vez.
+        """
+        raiz = self._raiz
+        raiz.update_idletasks()
+
+        # **Sem `geometry()` de propósito.** Fixar um tamanho aqui congela a
+        # janela num número medido antes de o Tk terminar de calcular o texto —
+        # foi assim que as linhas de caminho ficaram 64px fora da janela, com
+        # `reqheight` já valendo 755 e a janela presa em 691. Sem `geometry`, o
+        # toplevel acompanha o conteúdo sozinho, que é o comportamento padrão do
+        # Tk e não depende de eu acertar o instante da medição.
+        #
+        # `minsize` continua, para o operador não conseguir encolher a janela
+        # até esconder o "Salvar" com o mouse. Fica limitado à tela: monitor de
+        # máquina de loja é pequeno, e um mínimo maior que o monitor recriaria o
+        # recorte por outro caminho.
+        largura = max(raiz.winfo_reqwidth(), 560)
+        altura = min(raiz.winfo_reqheight(), int(raiz.winfo_screenheight() * 0.85))
+        raiz.minsize(largura, altura)
 
     def _montar_bloco_impressora(self, tk, ttk, pai) -> None:
         bloco = ttk.LabelFrame(pai, text=" Impressora ", padding=10)
@@ -253,7 +291,7 @@ class AgentWindow:
         # impressora dele "não aparece".
         caixa = ttk.Frame(self._painel_instalada)
         caixa.pack(fill="both", expand=True, pady=(6, 0))
-        self._lista = tk.Listbox(caixa, height=8, exportselection=False, activestyle="none")
+        self._lista = tk.Listbox(caixa, height=5, exportselection=False, activestyle="none")
         rolagem = ttk.Scrollbar(caixa, orient="vertical", command=self._lista.yview)
         self._lista.configure(yscrollcommand=rolagem.set)
         self._lista.pack(side="left", fill="both", expand=True)
@@ -271,7 +309,18 @@ class AgentWindow:
         self._painel_rede = ttk.Frame(bloco)
         ttk.Label(self._painel_rede, text="Endereço da impressora:").pack(anchor="w")
         self._endereco = tk.StringVar()
-        ttk.Entry(self._painel_rede, textvariable=self._endereco).pack(fill="x", pady=(4, 0))
+        linha_end = ttk.Frame(self._painel_rede)
+        linha_end.pack(fill="x", pady=(4, 0))
+        ttk.Entry(linha_end, textvariable=self._endereco).pack(
+            side="left", fill="x", expand=True,
+        )
+        # Separado do "Testar impressão" de propósito: "o computador não alcança
+        # a impressora" (IP errado, desligada, firewall, outra faixa de rede) e
+        # "alcança mas não imprimiu" (papel, largura, ESC/POS) têm soluções
+        # diferentes, e antes davam a mesma mensagem genérica.
+        ttk.Button(linha_end, text="Testar conexão", command=self._testar_conexao).pack(
+            side="left", padx=(6, 0),
+        )
         ttk.Label(
             self._painel_rede,
             text="Formato: 192.168.1.50 ou 192.168.1.50:9100 (a porta 9100 é o padrão).\n"
@@ -310,6 +359,29 @@ class AgentWindow:
         ttk.Label(
             bloco,
             text="Sem token o agente recusa toda impressão — é proposital.",
+            foreground="#666",
+        ).pack(anchor="w", pady=(4, 0))
+
+        ttk.Label(bloco, text="Endereços do painel autorizados a imprimir aqui:").pack(
+            anchor="w", pady=(10, 0),
+        )
+        self._origens = tk.Text(bloco, height=2, wrap="none")
+        self._origens.pack(fill="x", pady=(4, 0))
+
+        # A linha que resolve o caso real: o painel roda noutro computador da
+        # loja, e ninguém sabe o IP dele de cor. O agente sabe — quem tentou
+        # imprimir bateu na porta e ficou registrado. A pessoa só confirma.
+        self._linha_detectada = ttk.Frame(bloco)
+        self._lbl_detectada = ttk.Label(self._linha_detectada, foreground="#a06000")
+        self._lbl_detectada.pack(side="left")
+        ttk.Button(
+            self._linha_detectada, text="Autorizar", command=self._autorizar_detectada,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Label(
+            bloco,
+            text="Um endereço por linha. É o endereço que aparece na barra do "
+                 "navegador ao abrir o painel.",
             foreground="#666",
         ).pack(anchor="w", pady=(4, 0))
 
@@ -412,9 +484,12 @@ class AgentWindow:
                 self._selecionar_na_lista(destino)
         self._sincronizar_modo()
 
+        self._origens.delete("1.0", "end")
+        self._origens.insert("1.0", "\n".join(self._actions.config.allowed_origins))
+        self._pintar_detectada()
+
         self._lbl_caminhos.configure(
-            text=f"Configuração: {status.arquivo_de_config}\n"
-                 f"Log: {status.arquivo_de_log or '(ainda não criado)'}",
+            text=f"Configuração e log em: {status.arquivo_de_config.parent}",
         )
 
     def _pintar_status(self) -> None:
@@ -455,6 +530,7 @@ class AgentWindow:
         try:
             self._actions.salvar_impressora(destino, self._largura.get())
             self._actions.salvar_token(self._token.get())
+            self._actions.salvar_origens(self._origens_na_tela())
         except ConfiguracaoInvalida as exc:
             messagebox.showerror("Configuração inválida", str(exc), parent=self._raiz)
             return
@@ -491,6 +567,47 @@ class AgentWindow:
             "Teste enviado",
             "Cupom de teste enviado.\n\nConfira no papel: se os números da régua "
             "quebrarem para a linha de baixo, a largura está maior que o papel.",
+            parent=self._raiz,
+        )
+
+    def _origens_na_tela(self) -> list[str]:
+        return [l for l in self._origens.get("1.0", "end").splitlines() if l.strip()]
+
+    def _pintar_detectada(self) -> None:
+        """Mostra o painel que tentou imprimir aqui e ainda não foi autorizado."""
+        recusadas = self._actions.origens_recusadas()
+        if not recusadas:
+            self._linha_detectada.pack_forget()
+            return
+        self._lbl_detectada.configure(text=f"Tentou imprimir aqui: {recusadas[-1]}")
+        self._linha_detectada.pack(fill="x", pady=(6, 0))
+
+    def _autorizar_detectada(self) -> None:
+        from tkinter import messagebox
+
+        recusadas = self._actions.origens_recusadas()
+        if not recusadas:
+            return
+        try:
+            self._actions.salvar_origens([*self._origens_na_tela(), recusadas[-1]])
+        except ConfiguracaoInvalida as exc:
+            messagebox.showerror("Endereço inválido", str(exc), parent=self._raiz)
+            return
+        self._recarregar_da_config()
+
+    def _testar_conexao(self) -> None:
+        from tkinter import messagebox
+
+        try:
+            latencia = self._actions.testar_conexao(self._endereco.get())
+        except (ConfiguracaoInvalida, PrinterSendError) as exc:
+            messagebox.showerror("Sem conexão com a impressora", str(exc), parent=self._raiz)
+            return
+        messagebox.showinfo(
+            "Conexão OK",
+            f"Este computador alcançou a impressora em {latencia:.0f} ms.\n\n"
+            "Isso confirma a rede. Se mesmo assim não sair papel, use "
+            "'Testar impressão' — aí o problema é na impressora, não na rede.",
             parent=self._raiz,
         )
 
