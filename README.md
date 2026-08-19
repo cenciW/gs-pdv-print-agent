@@ -1,5 +1,12 @@
 # gs-pdv-print-agent
 
+> **Windows, antes de tudo:** desbloqueie o `.zip` baixado (botão direito →
+> Propriedades → **Desbloquear**) **antes** de extrair. Sem isso o Windows
+> trata o `.exe` como arquivo da internet: o duplo clique não abre (só o prompt
+> de comando abre) e ele pede confirmação a cada início, o que anula a
+> inicialização automática. Ver `docs/AUTOSTART.md`.
+
+
 Serviço local (roda na loja, na mesma rede da impressora) que recebe o texto
 do cupom do `gs-menu-dashboard` (PDV web) e imprime numa térmica ESC/POS —
 rede (porta 9100), Windows (`win32print`) ou Linux/CUPS.

@@ -28,8 +28,24 @@ qualquer seção abaixo — Windows ou Linux, conforme o computador da loja.
 
 ## Windows
 
-A forma mais simples, sem instalar nada extra: um atalho na pasta
-**Inicializar** do Windows.
+> ## ⚠ Passo 0 — desbloqueie o `.zip` ANTES de extrair
+>
+> Botão direito no arquivo baixado → **Propriedades** → marque
+> **Desbloquear** → **OK**. **Só então** extraia.
+>
+> Sem isso o Windows marca o executável como "baixado da internet" e:
+> **o duplo clique não abre nada** (só abre pelo prompt de comando, porque quem
+> confere a marca é o Explorer), e ele **pergunta se você confia no programa a
+> cada início** — o que anula a inicialização automática, já que o agente fica
+> esperando alguém clicar.
+>
+> Confirmado em uso real (2026-08-19): desbloqueando o zip antes de extrair,
+> tudo funciona — duplo clique, inicialização junto com o Windows, impressão
+> pelo painel. **É um passo, e evita os três problemas.**
+>
+> Já extraiu sem desbloquear? Abra o agente pelo prompt
+> (`.\gs-pdv-print-agent.exe`) e use o botão **"Não pedir mais"** na seção
+> *Sistema* da janela.
 
 1. **Extraia o `.zip`** pra uma pasta fixa, por exemplo
    `C:\gs-pdv-print-agent\`. Desde a **v0.4.0** o programa é **um arquivo
