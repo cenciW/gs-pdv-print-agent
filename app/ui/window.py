@@ -380,8 +380,10 @@ class AgentWindow:
 
         ttk.Label(
             bloco,
-            text="Um endereço por linha. É o endereço que aparece na barra do "
-                 "navegador ao abrir o painel.",
+            text="Endereços da REDE LOCAL (192.168.x, 10.x, 172.16-31.x) já são "
+                 "aceitos sem precisar estar nesta lista — é o caso do painel "
+                 "aberto no celular. Um endereço por linha; é o que aparece na "
+                 "barra do navegador ao abrir o painel.",
             foreground="#666",
         ).pack(anchor="w", pady=(4, 0))
 

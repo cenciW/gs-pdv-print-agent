@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from app.agent_actions import AgentActions, ConfiguracaoInvalida
 from app.auth import require_auth
-from app import autostart
+from app import autostart, motw
 from app.config import REGEX_REDE_PRIVADA, load_config, save_token
 from app.escpos import wrap_escpos
 from app.logging_setup import setup_logging
@@ -400,6 +400,15 @@ def main() -> None:
     aviso_autostart = autostart.diagnostico()
     if aviso_autostart:
         logger.warning("Inicialização automática: %s", aviso_autostart)
+
+    # Fica no log porque é a explicação de "não abre com dois cliques, só pelo
+    # cmd": o Explorer confere essa marca, o prompt de comando não.
+    if motw.esta_bloqueado():
+        logger.warning(
+            "Executável marcado como baixado da internet — o Windows vai pedir "
+            "confirmação a cada início, e abrir por duplo clique pode não "
+            "funcionar. Use 'Não pedir mais' na janela, ou Propriedades > Desbloquear."
+        )
 
     logger.info(
         "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s modo=%s log=%s",

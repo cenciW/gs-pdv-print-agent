@@ -61,6 +61,20 @@ A forma mais simples, sem instalar nada extra: um atalho na pasta
 Pronto: a partir do próximo login do Windows, o agente sobe sozinho. Pra testar
 sem reiniciar, feche e abra o programa.
 
+### "Só abre pelo prompt de comando, duplo clique não faz nada"
+
+Mesma causa da seção seguinte, e vale destacar porque o sintoma é diferente:
+**quem confere a marca de "arquivo baixado da internet" é o Explorer**, não o
+`cmd`. Por isso o mesmo executável abre digitando `.\gs-pdv-print-agent.exe` e
+parece morto no duplo clique.
+
+**A forma de nunca passar por isso: desbloqueie o `.zip` ANTES de extrair** —
+botão direito no arquivo baixado → Propriedades → marque **Desbloquear** → OK.
+Os arquivos extraídos saem limpos.
+
+Se já extraiu, abra o agente pelo `cmd` uma vez e use o botão **"Não pedir
+mais"** (seção seguinte) — o duplo clique volta a funcionar.
+
 ### "Ele sobe sozinho, mas pede uma permissão para executar"
 
 Isso é o Windows, não o agente: arquivo **baixado da internet** chega marcado, e
