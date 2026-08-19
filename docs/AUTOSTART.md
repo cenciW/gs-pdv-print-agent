@@ -6,14 +6,22 @@ Windows, etc.), alguém precisa lembrar de abrir o programa de novo antes de
 imprimir o primeiro cupom do dia. Este guia mostra como deixar o
 computador subir o agente sozinho.
 
-> **A partir da versão de 2026-08-17, o caminho mais curto é dentro do próprio
-> agente.** Abra o programa, clique com o botão direito no ícone da bandeja
-> (perto do relógio, às vezes escondido na setinha "mostrar ícones ocultos") e
-> marque **"Iniciar com o computador"**. Pronto — ele cria o atalho sozinho, e
-> desmarcar remove. As seções abaixo continuam valendo para quem prefere fazer
-> à mão, ou para quem precisa de um **serviço de verdade** no Linux (systemd
-> roda mesmo sem ninguém logado; o atalho da bandeja depende da sessão do
-> usuário).
+> **O caminho mais curto é dentro do próprio agente.** Abra o programa e marque
+> **"Iniciar junto com o computador"** (na janela, seção *Sistema*, ou pelo
+> menu do ícone da bandeja). Pronto — ele se registra sozinho, e desmarcar
+> remove.
+>
+> **Na v0.4.0 isso mudou de mecanismo no Windows:** era um atalho na pasta
+> Inicializar, que depende do Explorer executá-lo e pode ser desligado por fora
+> em *Gerenciador de Tarefas > Inicializar* — foi por isso que houve caso de
+> "abre normal, mas não sobe com o Windows". Agora o registro é na chave `Run`
+> do Windows, executada pelo próprio logon. O agente ainda **conserta sozinho**
+> o caminho se você mover o programa de pasta, e **avisa na janela** quando é o
+> Windows que está com a inicialização desativada.
+>
+> As seções abaixo continuam valendo para quem prefere fazer à mão, ou para
+> quem precisa de um **serviço de verdade** no Linux (systemd roda mesmo sem
+> ninguém logado; o registro da janela depende da sessão do usuário).
 
 Baixe o executável em [Releases](../../releases/latest) antes de seguir
 qualquer seção abaixo — Windows ou Linux, conforme o computador da loja.
@@ -23,14 +31,15 @@ qualquer seção abaixo — Windows ou Linux, conforme o computador da loja.
 A forma mais simples, sem instalar nada extra: um atalho na pasta
 **Inicializar** do Windows.
 
-1. **Extraia o `.zip` inteiro** (botão direito → "Extrair tudo") pra uma pasta
-   fixa, por exemplo `C:\gs-pdv-print-agent\`. O executável **não é um
-   arquivo único** — dentro do zip tem `gs-pdv-print-agent.exe` **e** uma
-   pasta `_internal\` do lado (runtime do Python + DLLs); sem essa pasta o
-   `.exe` não abre nada, nem mostra erro (o cursor pode até "carregar" por um
-   instante enquanto o Explorer tenta, mas nenhuma janela chega a aparecer).
-   **Nunca copie só o `.exe` sozinho** — sempre a pasta inteira extraída,
-   `_internal\` incluída, no mesmo lugar.
+1. **Extraia o `.zip`** pra uma pasta fixa, por exemplo
+   `C:\gs-pdv-print-agent\`. Desde a **v0.4.0** o programa é **um arquivo
+   só** (`gs-pdv-print-agent.exe`) — pode copiar e mover à vontade, desde que
+   o `config.json` ande junto, na mesma pasta.
+
+   > Nas versões até a v0.3.2 o zip trazia o `.exe` **mais** uma pasta
+   > `_internal\` ao lado, e copiar só o `.exe` fazia o programa não abrir
+   > nada — nem erro. Se você tem uma instalação antiga assim, apague a pasta
+   > inteira e extraia a nova por cima; leve só o `config.json` do lugar velho.
 2. Configure o token (obrigatório — sem ele o agente recusa toda impressão).
    Três jeitos, do mais simples ao mais manual:
    - **Baixe o `config.json` pronto** na tela **Impressão** do painel (botão
@@ -45,17 +54,18 @@ A forma mais simples, sem instalar nada extra: um atalho na pasta
    - Ou defina manualmente: `AGENT_TOKEN` como variável de ambiente, ou
      edite `config.json` à mão (veja o [README](../README.md) para o
      formato).
-3. Crie um atalho pro `gs-pdv-print-agent.exe` (botão direito → Criar atalho)
-   — como o token já está salvo no `config.json` desde o passo 2, o atalho
-   não precisa de nenhum truque de variável de ambiente, só apontar pro
-   executável mesmo.
-4. Pressione `Win + R`, digite `shell:startup` e Enter — abre a pasta
-   Inicializar do usuário atual.
-5. Copie o atalho criado no passo 3 pra essa pasta.
+3. Abra o programa e marque **"Iniciar junto com o computador"** na seção
+   *Sistema* da janela. É isso — não precisa criar atalho nem mexer em pasta
+   de inicialização.
 
-Pronto — a partir do próximo login do Windows, o agente sobe sozinho
-(numa janela de console minimizável, mostrando os logs). Pra testar sem
-reiniciar o computador, dê duplo clique no atalho.
+Pronto: a partir do próximo login do Windows, o agente sobe sozinho. Pra testar
+sem reiniciar, feche e abra o programa.
+
+> **Prefere fazer à mão?** `Win + R` → `shell:startup` abre a pasta
+> Inicializar do usuário; um atalho para o `.exe` ali dentro também funciona.
+> Só não use os dois caminhos ao mesmo tempo: o agente subiria duas vezes e a
+> segunda morreria com a porta ocupada (ligar a opção no programa **apaga** um
+> atalho antigo dessa pasta, justamente para evitar isso).
 
 > **Alternativa mais robusta (opcional):** registrar como Serviço do
 > Windows de verdade (roda mesmo sem ninguém logado) exige uma ferramenta
@@ -133,3 +143,31 @@ casos:
 Se o agente estiver rodando mas o dashboard continuar caindo no fallback
 do navegador, confira `AGENT_TOKEN` (tem que bater com a license_key do
 tenant) e se o navegador está no mesmo computador/rede que o agente.
+
+## Marquei "iniciar com o computador" e mesmo assim não subiu
+
+O menu não guarda um "sim/não" em lugar nenhum: ele responde **olhando o
+arquivo de inicialização**. Se a opção aparece ligada, o arquivo existe. O
+problema, então, está entre existir e ser executado.
+
+Confira, depois de reiniciar, se o arquivo continua lá:
+
+- Windows:
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\gs-pdv-print-agent.cmd`
+- Linux: `~/.config/autostart/gs-pdv-print-agent.desktop`
+
+**Se o arquivo sumiu**, alguém o removeu — antivírus (o Defender já apagou o
+instalador uma vez), limpeza de disco ou outro perfil de usuário.
+
+**Se o arquivo continua lá e mesmo assim nada sobe**, abra-o num editor: ele
+guarda o caminho absoluto de onde o agente estava **no momento em que a opção
+foi ligada**. Se o programa foi movido de pasta depois disso — o caso mais
+comum é ligar a opção rodando de dentro da pasta de Downloads e depois mover
+para `Arquivos de Programas` —, o comando aponta para o vazio e falha em
+silêncio. Solução: desligar e religar a opção com o agente já no lugar
+definitivo.
+
+**No Linux**, o `.desktop` de `~/.config/autostart` só roda quando **aquele
+usuário faz login na sessão gráfica**. Reiniciar e parar na tela de login não
+sobe nada. Se a loja precisa do agente no ar sem ninguém logado, é o caso de
+usar a unit do systemd descrita acima, não o atalho de sessão.

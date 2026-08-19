@@ -31,7 +31,8 @@ from typing import Callable, Optional
 
 from app import autostart, rede
 from app.config import (
-    AgentConfig, config_path, log_path, save_origins, save_printer_config, save_token,
+    AgentConfig, config_path, log_path, origem_autorizada, save_origins,
+    save_printer_config, save_token,
 )
 from app.escpos import wrap_escpos
 from app.printer_client import send_raw_bytes, test_connection
@@ -230,7 +231,11 @@ class AgentActions:
 
     def registrar_origem_recusada(self, origem: str) -> None:
         """Anota um painel que tentou usar este agente sem estar autorizado."""
-        if not origem or origem in self._config.allowed_origins:
+        # MESMO critério do CORS (`origem_autorizada`), não uma segunda cópia:
+        # com duas checagens, a janela oferecia "autorizar" um endereço que já
+        # funcionava — desde que a rede local passou a ser aceita por padrão,
+        # todo celular do salão cairia nessa lista sem motivo.
+        if not origem or origem_autorizada(self._config, origem):
             return
         if origem in self._origens_recusadas:
             return
@@ -296,6 +301,15 @@ class AgentActions:
 
     def autostart_ativo(self) -> bool:
         return autostart.esta_ativo()
+
+    def autostart_aviso(self) -> str:
+        """Por que a inicialização automática pode não estar funcionando.
+
+        Vazio quando não há nada a dizer. Existe porque *"ele inicializa
+        normal, mas não inicializa junto com o windows"* não tinha explicação
+        nenhuma em tela — a opção marcada dizia que estava tudo bem.
+        """
+        return autostart.diagnostico()
 
     def alternar_autostart(self) -> bool:
         """Liga/desliga o início automático. Devolve o estado **resultante**.

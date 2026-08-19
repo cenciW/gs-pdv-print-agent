@@ -5,6 +5,12 @@
 # equivalentes, não este .spec — ao mudar uma opção de build, mudar nos
 # DOIS lugares (mesma armadilha já documentada no CLAUDE.md do monorepo
 # pro GS-PDV desktop).
+#
+# ARQUIVO ÚNICO: o `EXE(...)` abaixo recebe `a.binaries` e `a.datas` e **não
+# existe `COLLECT`** — é isso que faz o PyInstaller gerar um executável só em
+# vez de uma pasta. Não acrescentar `COLLECT` aqui sem também tirar o
+# `--onefile` do CI, senão Windows e Linux voltam a divergir (o Windows
+# entregava uma pasta de 1.083 arquivos até 2026-08-19).
 import certifi
 from PyInstaller.utils.hooks import collect_all
 

@@ -395,6 +395,16 @@ class AgentWindow:
             variable=self._autostart, command=self._alternar_autostart,
         ).pack(anchor="w")
 
+        # A opção marcada não prova que o Windows vai executar: ele deixa a
+        # pessoa desativar a inicialização por fora (Gerenciador de Tarefas), e
+        # o registro pode ter ficado apontando para uma pasta antiga. Quando é
+        # esse o caso, a tela DIZ — antes, o agente jurava estar configurado
+        # enquanto nada subia no logon.
+        self._lbl_autostart = ttk.Label(
+            bloco, text="", foreground="#b06000", wraplength=520, justify="left",
+        )
+        self._lbl_autostart.pack(anchor="w", pady=(2, 0))
+
         linha = ttk.Frame(bloco)
         linha.pack(fill="x", pady=(8, 0))
         ttk.Button(linha, text="Abrir pasta de configuração", command=self._abrir_pasta).pack(side="left")
@@ -463,6 +473,7 @@ class AgentWindow:
         self._token.set(self._actions.config.token)
         self._largura.set(status.chars_per_line)
         self._autostart.set(self._actions.autostart_ativo())
+        self._atualizar_aviso_autostart()
 
         destino = status.printer_dest
         instaladas = {p.name for p in self._impressoras}
@@ -611,10 +622,18 @@ class AgentWindow:
             parent=self._raiz,
         )
 
+    def _atualizar_aviso_autostart(self) -> None:
+        rotulo = getattr(self, "_lbl_autostart", None)
+        if rotulo is None:
+            return
+        aviso = self._actions.autostart_aviso()
+        rotulo.configure(text=("⚠ " + aviso) if aviso else "")
+
     def _alternar_autostart(self) -> None:
         # Reflete o estado REAL: criar o atalho é best-effort, e uma caixa
         # marcada por engano faria o lojista crer que o agente sobe sozinho.
         self._autostart.set(self._actions.alternar_autostart())
+        self._atualizar_aviso_autostart()
 
     def _reiniciar(self) -> None:
         from tkinter import messagebox

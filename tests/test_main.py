@@ -268,13 +268,41 @@ def test_preflight_de_rede_privada_de_origem_nao_autorizada_continua_barrado(app
     res = TestClient(build()).options(
         "/health",
         headers={
-            "Origin": "http://intruso:3001",
+            "Origin": "https://loja-falsa.example.com",
             "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Private-Network": "true",
         },
     )
 
-    assert res.headers.get("access-control-allow-origin") != "http://intruso:3001"
+    assert res.headers.get("access-control-allow-origin") != "https://loja-falsa.example.com"
+
+
+def test_painel_aberto_no_celular_da_loja_e_aceito(app_with_config):
+    """O caso do celular do salão (2026-08-19).
+
+    O operador abre o PDV web no celular apontando para o IP do computador da
+    impressora. A origem vira `http://192.168.x.x:3001`, que não está — nem
+    poderia estar — na lista fixa: esse endereço muda de loja para loja. O
+    agente respondia "não encontrado" no celular, sem nada em tela explicando.
+
+    Quem autoriza a impressão continua sendo o token; a origem só diz de qual
+    página o navegador está falando.
+    """
+    build, _ = app_with_config
+    app = build()
+    res = TestClient(app).options(
+        "/health",
+        headers={
+            "Origin": "http://192.168.1.135:3001",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.headers.get("access-control-allow-origin") == "http://192.168.1.135:3001"
+    # E não vira "pedido de autorização" na janela: já funciona.
+    assert app.state.actions.origens_recusadas() == []
 
 
 def test_preflight_bloqueado_e_registrado_para_a_janela_oferecer(app_with_config):
@@ -289,10 +317,10 @@ def test_preflight_bloqueado_e_registrado_para_a_janela_oferecer(app_with_config
     TestClient(app).options(
         "/health",
         headers={
-            "Origin": "http://192.168.1.135:3001",
+            "Origin": "https://painel-de-fora.example.com",
             "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Private-Network": "true",
         },
     )
 
-    assert "http://192.168.1.135:3001" in app.state.actions.origens_recusadas()
+    assert "https://painel-de-fora.example.com" in app.state.actions.origens_recusadas()

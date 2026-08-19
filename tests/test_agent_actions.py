@@ -271,8 +271,20 @@ def test_lista_de_origens_e_alterada_no_lugar(actions):
 
 
 def test_origem_recusada_fica_registrada_para_a_tela_oferecer(actions):
+    actions.registrar_origem_recusada("https://painel-de-fora.example.com")
+    assert actions.origens_recusadas() == ["https://painel-de-fora.example.com"]
+
+
+def test_painel_da_rede_local_nao_precisa_ser_autorizado(actions):
+    """O caso do celular do salão (2026-08-19).
+
+    O operador abre o PDV web no celular apontando para o IP do computador da
+    impressora, e a origem vira `http://192.168.x.x:3001` — endereço que muda
+    de loja para loja e nunca caberia na lista fixa. Antes, o agente aparecia
+    como "não encontrado" no celular sem nada explicando.
+    """
     actions.registrar_origem_recusada("http://192.168.1.135:3001")
-    assert actions.origens_recusadas() == ["http://192.168.1.135:3001"]
+    assert actions.origens_recusadas() == []
 
 
 def test_origem_ja_autorizada_nao_vira_pedido(actions):
@@ -283,14 +295,14 @@ def test_origem_ja_autorizada_nao_vira_pedido(actions):
 
 def test_autorizar_tira_da_lista_de_pedidos(actions):
     """Senão a tela seguiria oferecendo autorizar algo que já está autorizado."""
-    actions.registrar_origem_recusada("http://192.168.1.135:3001")
-    actions.salvar_origens(["http://192.168.1.135:3001"])
+    actions.registrar_origem_recusada("https://painel-de-fora.example.com")
+    actions.salvar_origens(["https://painel-de-fora.example.com"])
     assert actions.origens_recusadas() == []
 
 
 def test_pedidos_de_acesso_nao_crescem_sem_limite(actions):
     for n in range(20):
-        actions.registrar_origem_recusada(f"http://host{n}:3001")
+        actions.registrar_origem_recusada(f"https://host{n}.example.com")
     assert len(actions.origens_recusadas()) == 5
 
 

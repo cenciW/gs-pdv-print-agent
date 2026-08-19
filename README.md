@@ -38,6 +38,11 @@ python main.py
 - `ALLOWED_ORIGINS` — origens do navegador aceitas (`Origin` header),
   separadas por vírgula. Default `http://localhost:3001`; em produção,
   algo como `https://painel.gs-menu.com.br`.
+- `ALLOW_PRIVATE_NETWORK_ORIGINS` — aceitar **também** qualquer endereço de
+  rede local (`10.x`, `192.168.x`, `172.16–31.x`, `localhost`, `*.local`), em
+  qualquer porta. **Ligado por padrão desde a v0.4.0**: o painel aberto no
+  celular do salão chega como `http://192.168.x.x:3001`, endereço que muda de
+  loja para loja e não cabe numa lista fixa. `0`/`false` desliga.
 - `AGENT_PORT` — porta HTTP local do agente. Default `9123`.
 
 Alternativa a variáveis de ambiente: um `config.json` ao lado do executável
@@ -143,8 +148,10 @@ a pessoa já sabe procurar.
 Duas camadas, falha fechada nas duas:
 1. **Token** — comparado com `secrets.compare_digest` (nunca `==`), mesma
    regra do resto do monorepo.
-2. **Origin** — só as origens da allowlist podem chamar `/print`, mesmo com
-   token certo. Uma LAN de loja não é rede confiável por padrão.
+2. **Origin** — só origem da allowlist (ou da **rede local**, ver
+   `ALLOW_PRIVATE_NETWORK_ORIGINS`) pode chamar `/print`, mesmo com token
+   certo. Endereço de fora da LAN continua barrado — e registrado, para a
+   janela poder oferecer autorizar.
 
 Isto é uma simplificação deliberada do "token efêmero por sessão do
 operador" cogitado no planejamento original: um segredo estático

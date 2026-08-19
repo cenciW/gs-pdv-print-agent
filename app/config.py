@@ -11,6 +11,7 @@ recusa com mensagem clara em vez de falhar de forma confusa.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 from dataclasses import dataclass, field
@@ -84,6 +85,11 @@ class AgentConfig:
             ``Authorization: Bearer <token>``. Em branco = ``/print`` sempre
             recusa (falha fechada — nunca aceitar print sem token configurado).
         allowed_origins: Origens do browser autorizadas a chamar ``/print``.
+        allow_private_network_origins: Aceita também qualquer origem da rede
+            local (``192.168.*``, ``10.*``, ``172.16-31.*``, ``localhost``),
+            em qualquer porta. É o caso do painel aberto no celular do salão.
+            **Não afrouxa a autorização de verdade**, que é o token: sem ele
+            nenhuma impressão sai, venha a requisição de onde vier.
         port: Porta HTTP local do agente.
     """
 
@@ -91,7 +97,63 @@ class AgentConfig:
     chars_per_line: int = 48
     token: str = ""
     allowed_origins: list[str] = field(default_factory=lambda: ["http://localhost:3001"])
+    #: Aceitar painel aberto de qualquer endereço da REDE LOCAL (ver
+    #: ``REGEX_REDE_PRIVADA``). Ligado por padrão desde 2026-08-19: o operador
+    #: que abre o PDV web no celular chega com origem ``http://192.168.x.x:3001``
+    #: e batia numa lista que só tinha ``localhost`` — o agente ficava
+    #: "não encontrado" no celular, sem nada na tela dizendo o porquê.
+    #: Quem quiser a lista fechada põe ``"allow_private_network_origins": false``
+    #: no ``config.json``.
+    allow_private_network_origins: bool = True
     port: int = 9123
+
+
+#: Origens de rede local aceitas quando ``allow_private_network_origins``.
+#:
+#: Só faixas privadas e loopback, em qualquer porta — nunca um endereço
+#: público. Mesmo espírito do ``CORS_ALLOW_ORIGIN_REGEX`` que o gs-menu já usa
+#: para os subdomínios de tenant: lista fixa nunca dá conta de endereço que
+#: muda de máquina para máquina.
+REGEX_REDE_PRIVADA = (
+    r"^https?://("
+    r"localhost"
+    r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|[a-z0-9-]+\.local"
+    r")(:\d+)?$"
+)
+
+
+def _bool_config(valor_env, valor_arquivo, *, padrao: bool) -> bool:
+    """Resolve um booleano de configuração: env var vence, depois arquivo.
+
+    Env var vazia conta como ausente — mesma armadilha já documentada para
+    ``AGENT_TOKEN`` (um atalho mal preenchido definia a variável vazia e
+    apagava o valor do ``config.json``).
+    """
+    if valor_env:
+        return valor_env.strip().lower() not in ("0", "false", "nao", "não", "off")
+    if isinstance(valor_arquivo, bool):
+        return valor_arquivo
+    return padrao
+
+
+def origem_autorizada(config: "AgentConfig", origem: str) -> bool:
+    """Se um painel com esta ``Origin`` pode falar com o agente.
+
+    Existe para a checagem ser UMA só: o CORS decide pelo mesmo critério que a
+    janela usa para dizer "este painel não está autorizado". Com duas cópias, a
+    janela ofereceria autorizar um endereço que já funcionava.
+    """
+    if not origem:
+        return True  # requisição sem Origin (curl, agente local) — quem manda é o token
+    if origem in config.allowed_origins:
+        return True
+    return bool(
+        config.allow_private_network_origins and re.match(REGEX_REDE_PRIVADA, origem)
+    )
 
 
 def _read_config_file() -> dict:
@@ -129,6 +191,11 @@ def load_config() -> AgentConfig:
         chars_per_line=int(os.getenv("CHARS_PER_LINE") or file_data.get("chars_per_line", 48)),
         token=os.getenv("AGENT_TOKEN") or file_data.get("token", ""),
         allowed_origins=allowed_origins,
+        allow_private_network_origins=_bool_config(
+            os.getenv("ALLOW_PRIVATE_NETWORK_ORIGINS"),
+            file_data.get("allow_private_network_origins"),
+            padrao=True,
+        ),
         port=int(os.getenv("AGENT_PORT") or file_data.get("port", 9123)),
     )
 

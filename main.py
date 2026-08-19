@@ -28,7 +28,8 @@ from pydantic import BaseModel
 
 from app.agent_actions import AgentActions, ConfiguracaoInvalida
 from app.auth import require_auth
-from app.config import load_config, save_token
+from app import autostart
+from app.config import REGEX_REDE_PRIVADA, load_config, save_token
 from app.escpos import wrap_escpos
 from app.logging_setup import setup_logging
 from app.printer_client import PrinterSendError, send_raw_bytes
@@ -45,9 +46,20 @@ app.state.config = load_config()
 # virava "duas verdades": salvar pelo painel não chegava na janela aberta.
 app.state.actions = AgentActions(app.state.config, servidor_no_ar=lambda: True)
 
+# Além da lista explícita, aceita a REDE LOCAL inteira quando
+# `allow_private_network_origins` está ligado (padrão). O painel aberto no
+# celular do salão chega como `http://192.168.x.x:3001`, endereço que muda de
+# loja para loja e nunca caberia numa lista fixa — o agente aparecia como "não
+# encontrado" no celular sem nada explicando. Quem autoriza a impressão é o
+# token, não a origem (ver SECURITY.md).
+_regex_origens = (
+    REGEX_REDE_PRIVADA if app.state.config.allow_private_network_origins else None
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app.state.config.allowed_origins,
+    allow_origin_regex=_regex_origens,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
@@ -360,11 +372,23 @@ def main() -> None:
     if not com_interface:
         _resolver_token_no_console(cfg)
 
+    # Conserta sozinho um registro de inicialização que ficou apontando para
+    # onde o agente NÃO está mais (movido de pasta depois de ligar a opção) —
+    # a causa mais comum de "não inicializa junto com o Windows".
+    autostart.sincronizar()
+    aviso_autostart = autostart.diagnostico()
+    if aviso_autostart:
+        logger.warning("Inicialização automática: %s", aviso_autostart)
+
     logger.info(
         "Subindo em 0.0.0.0:%d — impressora=%s (%d colunas) token=%s origens=%s modo=%s log=%s",
         cfg.port, cfg.printer_dest or "(não configurada)", cfg.chars_per_line,
         "configurado" if cfg.token else "AUSENTE (print vai recusar tudo)",
-        cfg.allowed_origins, "janela" if com_interface else "headless",
+        # O log precisa responder "por que o celular não acha o agente?" sem
+        # ninguém ler o código: diz a lista E se a rede local está liberada.
+        f"{cfg.allowed_origins}"
+        + (" + rede local" if cfg.allow_private_network_origins else " (só a lista)"),
+        "janela" if com_interface else "headless",
         _arquivo_de_log or "(só console)",
     )
 

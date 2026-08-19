@@ -99,8 +99,23 @@ jobs:
           # PRINCIPAL, e `--hidden-import` sozinho traz o módulo mas não
           # garante os dados do Tcl/Tk. Sem eles o .exe sobe e a janela falha
           # só na máquina do cliente. Mesma opção precisa existir no .spec.
+          # `--onefile` (2026-08-19, decisão do usuário): o build padrão do
+          # PyInstaller é uma PASTA, e o zip do Windows extraía 1.083
+          # arquivos. Numa loja isso vira "qual desses eu abro?", e mover a
+          # pasta pela metade quebra o agente. Um arquivo só resolve —
+          # inicia um pouco mais devagar (o carregador extrai para o temp a
+          # cada execução) e é o preço aceito.
+          #
+          # O `config.json` continua sendo procurado AO LADO DO EXECUTÁVEL,
+          # não dentro do temp: `_default_config_dir()` usa `sys.executable`,
+          # que no onefile é o .exe de verdade — não o `sys._MEIPASS`. Há
+          # teste cobrindo (tests/test_config_path.py).
+          #
+          # O .spec do build local JÁ era onefile (não tem `COLLECT`), então
+          # esta mudança alinha o Windows com o Linux em vez de divergir.
           pyinstaller --noconfirm `
             --name gs-pdv-print-agent `
+            --onefile `
             $janela `
             --hidden-import uvicorn.loops.auto `
             --hidden-import uvicorn.protocols.http.auto `
@@ -123,7 +138,14 @@ jobs:
       - name: Empacotar
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/gs-pdv-print-agent -DestinationPath gs-pdv-print-agent-windows-v${{ needs.version.outputs.version }}.zip
+          # Com `--onefile` o resultado é `dist/gs-pdv-print-agent.exe`, não
+          # mais uma pasta. O zip continua existindo porque é o formato que o
+          # painel manda o lojista baixar, e porque navegador trata .exe solto
+          # com mais atrito ainda que .zip.
+          if (-not (Test-Path dist/gs-pdv-print-agent.exe)) {
+            throw "esperava um executável único em dist/ — o --onefile saiu do build?"
+          }
+          Compress-Archive -Path dist/gs-pdv-print-agent.exe -DestinationPath gs-pdv-print-agent-windows-v${{ needs.version.outputs.version }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
