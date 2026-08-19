@@ -61,6 +61,24 @@ A forma mais simples, sem instalar nada extra: um atalho na pasta
 Pronto: a partir do próximo login do Windows, o agente sobe sozinho. Pra testar
 sem reiniciar, feche e abra o programa.
 
+### "Ele sobe sozinho, mas pede uma permissão para executar"
+
+Isso é o Windows, não o agente: arquivo **baixado da internet** chega marcado, e
+enquanto a marca existir ele pergunta se você confia no programa **toda vez**.
+Num computador de loja isso anula a inicialização automática — o agente fica
+esperando alguém clicar, e o primeiro cupom do dia não sai.
+
+O agente detecta e oferece resolver: na janela, seção *Sistema*, aparece
+**"O Windows pede confirmação toda vez que o agente abre"** com o botão
+**"Não pedir mais"**. Um clique e acabou.
+
+À mão dá no mesmo: botão direito no `gs-pdv-print-agent.exe` → **Propriedades**
+→ marque **Desbloquear** → OK.
+
+> A causa de fundo é o executável não ser assinado digitalmente — assinar tem
+> custo anual e ficou para depois. Desbloquear resolve para a cópia instalada;
+> ao trocar de versão, a marca volta com o arquivo novo.
+
 > **Prefere fazer à mão?** `Win + R` → `shell:startup` abre a pasta
 > Inicializar do usuário; um atalho para o `.exe` ali dentro também funciona.
 > Só não use os dois caminhos ao mesmo tempo: o agente subiria duas vezes e a

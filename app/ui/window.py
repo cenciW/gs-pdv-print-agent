@@ -405,6 +405,20 @@ class AgentWindow:
         )
         self._lbl_autostart.pack(anchor="w", pady=(2, 0))
 
+        # "Inicializou sozinho, mas pede uma permissão para executar": o
+        # arquivo veio da internet e o Windows pergunta a cada início. Num
+        # computador de loja isso anula o autostart — o agente fica esperando
+        # alguém clicar, e o primeiro cupom do dia não sai.
+        self._linha_motw = ttk.Frame(bloco)
+        ttk.Label(
+            self._linha_motw,
+            text="O Windows pede confirmação toda vez que o agente abre.",
+            foreground="#b06000", wraplength=380, justify="left",
+        ).pack(side="left")
+        ttk.Button(
+            self._linha_motw, text="Não pedir mais", command=self._remover_aviso_windows,
+        ).pack(side="left", padx=(8, 0))
+
         linha = ttk.Frame(bloco)
         linha.pack(fill="x", pady=(8, 0))
         ttk.Button(linha, text="Abrir pasta de configuração", command=self._abrir_pasta).pack(side="left")
@@ -628,6 +642,34 @@ class AgentWindow:
             return
         aviso = self._actions.autostart_aviso()
         rotulo.configure(text=("⚠ " + aviso) if aviso else "")
+
+        linha = getattr(self, "_linha_motw", None)
+        if linha is None:
+            return
+        if self._actions.windows_pede_confirmacao():
+            linha.pack(fill="x", pady=(4, 0))
+        else:
+            linha.pack_forget()
+
+    def _remover_aviso_windows(self) -> None:
+        from tkinter import messagebox
+
+        if self._actions.remover_aviso_do_windows():
+            messagebox.showinfo(
+                "Pronto",
+                "O Windows não vai mais pedir confirmação para abrir o agente "
+                "nesta cópia do programa.",
+                parent=self._raiz,
+            )
+        else:
+            messagebox.showwarning(
+                "Não consegui remover",
+                "O Windows não deixou alterar o arquivo. Dá para fazer à mão: "
+                "clique com o botão direito no gs-pdv-print-agent.exe → "
+                "Propriedades → marque \"Desbloquear\" → OK.",
+                parent=self._raiz,
+            )
+        self._atualizar_aviso_autostart()
 
     def _alternar_autostart(self) -> None:
         # Reflete o estado REAL: criar o atalho é best-effort, e uma caixa

@@ -327,6 +327,22 @@ def _avisar_falha_fatal(mensagem: str) -> None:
         pass
 
 
+def _fechar_splash() -> None:
+    """Tira a tela de abertura assim que há algo de verdade para olhar.
+
+    O `pyi_splash` só existe no executável empacotado **com** splash — rodando
+    pelo Python, ou num build sem ele, o import falha e não há nada a fechar.
+    Nunca pode derrubar o agente: uma tela decorativa não vale um serviço de
+    impressão fora do ar.
+    """
+    try:
+        import pyi_splash  # type: ignore[import-not-found]
+
+        pyi_splash.close()
+    except Exception:  # noqa: BLE001 — inclui ImportError e falha do bootloader
+        pass
+
+
 def _iniciar_com_interface(cfg) -> None:
     """Sobe servidor + janela (+ bandeja, se der) e entrega o laço à janela."""
     from app.ui import tray, window
@@ -359,6 +375,11 @@ def _iniciar_com_interface(cfg) -> None:
     # do usuário em 2026-08-17). Faltando token ou impressora, a janela abre:
     # é a primeira instalação, e é onde ela precisa aparecer.
     pronto = app.state.actions.status().pronto
+    # Última coisa antes de a janela aparecer: se fechasse antes, sobrariam
+    # instantes de tela vazia — que é justamente o que o splash existe para
+    # cobrir. Vale também quando ela sobe escondida na bandeja: aí o ícone já
+    # está lá, e manter o splash daria a impressão de travado.
+    _fechar_splash()
     janela.executar(iniciar_escondida=pronto and com_bandeja)
 
     if bandeja is not None:
@@ -393,6 +414,9 @@ def main() -> None:
     )
 
     if not com_interface:
+        # Modo serviço: não há janela para esperar, então o splash sai assim que
+        # o servidor assume.
+        _fechar_splash()
         _servir(cfg)
         return
 

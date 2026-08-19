@@ -171,6 +171,29 @@ def test_print_with_disallowed_origin_is_rejected_even_with_right_token(app_with
     assert res.status_code == 403
 
 
+def test_print_do_celular_da_loja_passa(app_with_config):
+    """Regressão da v0.4.0 — o bug que o usuário sentiu como "não sai o teste".
+
+    O CORS passou a aceitar a rede local, mas `verify_origin` continuou olhando
+    só a lista crua: a requisição saía do navegador e morria com 403 na rota.
+    O sintoma escondia a causa — `/health` (sem auth) dizia "agente conectado" e
+    o teste feito pelo próprio agente funcionava (sem header `Origin`), então
+    tudo parecia certo menos imprimir pela tela.
+    """
+    build, port = app_with_config
+    server = _FakePrinterServer(port)
+    app = build(printer_dest=f"127.0.0.1:{port}")
+    res = TestClient(app).post(
+        "/print", json={"text": "CUPOM DO CELULAR"},
+        headers={
+            "Authorization": "Bearer segredo-teste",
+            "Origin": "http://192.168.1.135:3001",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert b"CUPOM DO CELULAR" in server.received
+
+
 def test_print_without_printer_configured_returns_503(app_with_config):
     build, _ = app_with_config
     app = build(printer_dest="")

@@ -23,7 +23,7 @@ from PyInstaller.utils.hooks import collect_all
 # cosmético. `collect_all` garante módulo + binários + dados.
 tk_datas, tk_binaries, tk_hidden = collect_all("tkinter")
 
-datas = [(certifi.where(), "certifi"), *tk_datas]
+datas = [(certifi.where(), "certifi"), ("app/assets/splash.png", "app/assets"), *tk_datas]
 hiddenimports = [
     *tk_hidden,
     "uvicorn.loops.auto",
@@ -58,9 +58,24 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Tela de abertura (2026-08-19). Em arquivo único o carregador descompacta ~28MB
+# num diretório temporário a cada execução, e isso leva segundos em que **nada**
+# aparece na tela — o usuário descreveu como "parece que trava e do nada abre".
+# O splash é desenhado pelo próprio bootloader, ANTES de o Python subir, que é
+# justamente o intervalo sem feedback. Quem o fecha é o agente, quando a janela
+# está pronta (`_fechar_splash` no main.py).
+splash = Splash(
+    "app/assets/splash.png",
+    binaries=a.binaries,
+    datas=a.datas,
+    always_on_top=True,
+)
+
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.datas,
     [],

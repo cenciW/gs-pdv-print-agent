@@ -26,7 +26,7 @@ reproduzir.
 
 | Versão | Situação |
 |---|---|
-| última release (`v0.4.0`) | recebe correção |
+| última release (`v0.4.1`) | recebe correção |
 | anteriores | atualize antes de reportar |
 
 Só a última release recebe correção. O agente é pequeno e a atualização é

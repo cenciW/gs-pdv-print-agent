@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from app import autostart, rede
+from app import autostart, motw, rede
 from app.config import (
     AgentConfig, config_path, log_path, origem_autorizada, save_origins,
     save_printer_config, save_token,
@@ -301,6 +301,16 @@ class AgentActions:
 
     def autostart_ativo(self) -> bool:
         return autostart.esta_ativo()
+
+    def windows_pede_confirmacao(self) -> bool:
+        """Se o Windows vai pedir permissão a cada início (marca da web)."""
+        return motw.esta_bloqueado()
+
+    def remover_aviso_do_windows(self) -> bool:
+        """Desbloqueia o executável. Devolve se ficou liberado."""
+        ok = motw.desbloquear()
+        self.notificar()
+        return ok
 
     def autostart_aviso(self) -> str:
         """Por que a inicialização automática pode não estar funcionando.

@@ -113,6 +113,12 @@ jobs:
           #
           # O .spec do build local JÁ era onefile (não tem `COLLECT`), então
           # esta mudança alinha o Windows com o Linux em vez de divergir.
+          #
+          # `--splash` (2026-08-19): consequência direta do onefile — o
+          # carregador descompacta ~28MB a cada execução e ficavam segundos com
+          # NADA na tela ("parece que trava e do nada abre"). O splash é
+          # desenhado pelo bootloader antes de o Python subir, que é exatamente
+          # o intervalo sem feedback; o agente o fecha quando a janela abre.
           pyinstaller --noconfirm `
             --name gs-pdv-print-agent `
             --onefile `
@@ -132,6 +138,7 @@ jobs:
             --hidden-import tkinter.ttk `
             --hidden-import tkinter.messagebox `
             --collect-all tkinter `
+            --splash app/assets/splash.png `
             --add-data "${certPath};certifi" `
             main.py
 
